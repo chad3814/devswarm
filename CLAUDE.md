@@ -1,0 +1,91 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+Orchestr8 is an agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks. It's a monorepo with three packages deployed in a Docker container, coordinated through a web dashboard.
+
+## Build Commands
+
+```bash
+npm run build      # Build all packages (TypeScript → dist/)
+npm run dev        # Watch mode for all packages
+npm run lint       # ESLint across all packages
+npm run clean      # Remove all dist/ directories
+```
+
+Individual package builds from root:
+```bash
+npm run build -w @orchestr8/cli
+npm run build -w @orchestr8/server
+npm run build -w @orchestr8/web
+```
+
+## Architecture
+
+### Three-Tier Distributed System
+
+```
+HOST (Local Machine)
+└─ orchestr8 CLI (Docker orchestration)
+
+CONTAINER (Docker)
+├─ Fastify Server + React Frontend (port 3814-3850)
+├─ Tmux Session (parallel Claude instances)
+├─ Git Daemon (port 9418)
+└─ SQLite Database
+
+DATA VOLUME (/data)
+├─ db/          # SQLite persistence
+├─ bare.git/    # Bare repository clone
+├─ worktrees/   # Git worktrees per Claude instance
+├─ state/       # Resume IDs, session state
+└─ config/      # Symlinked gh + claude configs
+```
+
+### Package Structure
+
+- **packages/cli**: Host CLI tool using Commander.js and Dockerode for container management
+- **packages/server**: Fastify backend with WebSocket, SQLite (better-sqlite3), tmux management, and git worktree operations
+- **packages/web**: React 19 dashboard with Zustand state, xterm.js terminal emulation, Vite build, Tailwind CSS
+
+### Core Server Modules
+
+```
+packages/server/src/
+├── orchestrator/    # Main orchestration engine (5-second loop)
+├── claude/          # Instance wrapper + role prompts
+├── tmux/            # Session/pane management + output capture
+├── git/             # Worktree operations
+├── db/              # SQLite schema & queries
+├── github/          # OAuth flow + issue sync
+└── routes/          # HTTP + WebSocket endpoints
+```
+
+### Data Flow
+
+1. **Initialization**: CLI starts container → Auth via GitHub Device Flow → Clone bare repo → Start git daemon → Create main worktree
+2. **Claude Lifecycle**: Each role gets a tmux pane → Output captured via polling → Events emitted (output, question, task_complete)
+3. **Work Pipeline**: Roadmap items → Specs → Task groups → Workers execute in parallel → Merge back to main
+
+### Claude Roles
+
+- `main`: Roadmap curator, final reviewer
+- `spec_creator`: Detailed specification writer
+- `overseer`: Spec implementation manager
+- `worker`: Task executor (multiple can run in parallel)
+
+## Tech Stack
+
+- **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3)
+- **Frontend**: React 19, Zustand 5, Vite 6, Tailwind 3.4, xterm.js 5
+- **System**: Docker, tmux, git worktrees, GitHub CLI
+
+## Key Patterns
+
+- Event-driven Claude interaction via Node.js EventEmitter
+- WebSocket for real-time dashboard updates
+- Database columns use snake_case, TypeScript uses camelCase
+- Resume IDs generated with nanoid for Claude session persistence
+- Git worktrees provide clean isolation per spec/task
