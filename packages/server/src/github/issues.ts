@@ -7,6 +7,7 @@ export interface GitHubIssue {
     html_url: string;
     state: string;
     labels: { name: string }[];
+    pull_request?: unknown;
 }
 
 export async function fetchGitHubIssues(
@@ -41,7 +42,7 @@ export async function fetchGitHubIssues(
         const data = await res.json() as GitHubIssue[];
 
         // Filter out pull requests (they come back in the issues endpoint)
-        const realIssues = data.filter((item: Record<string, unknown>) => !item.pull_request);
+        const realIssues = data.filter((item) => !item.pull_request);
         issues.push(...realIssues);
 
         if (data.length < perPage) {

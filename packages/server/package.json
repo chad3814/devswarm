@@ -1,6 +1,7 @@
 {
     "name": "@orchestr8/server",
     "version": "0.1.0",
+    "type": "module",
     "description": "Server for Orchestr8 agentic coding orchestrator",
     "main": "dist/index.js",
     "scripts": {
