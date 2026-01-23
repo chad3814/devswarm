@@ -1,0 +1,21 @@
+{
+    "name": "orchestr8",
+    "version": "0.1.0",
+    "private": true,
+    "workspaces": [
+        "packages/*"
+    ],
+    "scripts": {
+        "build": "npm run build --workspaces",
+        "dev": "npm run dev --workspaces --if-present",
+        "lint": "eslint packages/*/src/**/*.ts packages/*/src/**/*.tsx",
+        "clean": "rm -rf packages/*/dist"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "^5.7.0",
+        "eslint": "^9.0.0",
+        "@typescript-eslint/eslint-plugin": "^8.0.0",
+        "@typescript-eslint/parser": "^8.0.0"
+    }
+}

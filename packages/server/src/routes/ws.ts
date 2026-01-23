@@ -1,0 +1,105 @@
+import { WebSocket } from 'ws';
+import { Db, UserQuestion } from '../db/index.js';
+
+interface Client {
+    ws: WebSocket;
+    subscribedClaudes: Set<string>;
+}
+
+export class WebSocketHub {
+    private clients = new Set<Client>();
+
+    addClient(ws: WebSocket): Client {
+        const client: Client = {
+            ws,
+            subscribedClaudes: new Set(),
+        };
+        this.clients.add(client);
+        return client;
+    }
+
+    removeClient(client: Client): void {
+        this.clients.delete(client);
+    }
+
+    broadcast(message: object): void {
+        const data = JSON.stringify(message);
+        for (const client of this.clients) {
+            if (client.ws.readyState === WebSocket.OPEN) {
+                client.ws.send(data);
+            }
+        }
+    }
+
+    broadcastState(db: Db): void {
+        const roadmapItems = db.getRoadmapItems();
+        const specs = db.getSpecs();
+        const claudeInstances = db.getClaudeInstances({ status: 'running' });
+
+        this.broadcast({
+            type: 'state',
+            payload: {
+                roadmapItems,
+                specs,
+                claudeInstances,
+            },
+        });
+    }
+
+    broadcastClaudeOutput(instanceId: string, data: string): void {
+        const message = JSON.stringify({
+            type: 'claude_output',
+            instanceId,
+            data,
+        });
+
+        for (const client of this.clients) {
+            if (client.subscribedClaudes.has(instanceId) && client.ws.readyState === WebSocket.OPEN) {
+                client.ws.send(message);
+            }
+        }
+    }
+
+    broadcastQuestion(question: UserQuestion): void {
+        this.broadcast({
+            type: 'question',
+            question,
+        });
+    }
+
+    broadcastRoadmapUpdate(item: object): void {
+        this.broadcast({
+            type: 'roadmap_update',
+            item,
+        });
+    }
+
+    broadcastSpecUpdate(spec: object): void {
+        this.broadcast({
+            type: 'spec_update',
+            spec,
+        });
+    }
+
+    broadcastClaudeUpdate(instance: object): void {
+        this.broadcast({
+            type: 'claude_update',
+            instance,
+        });
+    }
+
+    broadcastShutdownProgress(stage: string): void {
+        this.broadcast({
+            type: 'shutdown_progress',
+            stage,
+        });
+    }
+
+    subscribeToClaudeOutput(client: Client, instanceId: string): void {
+        client.subscribedClaudes.add(instanceId);
+    }
+
+    unsubscribeFromClaudeOutput(client: Client, instanceId: string): void {
+        client.subscribedClaudes.delete(instanceId);
+    }
+}

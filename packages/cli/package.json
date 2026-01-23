@@ -1,0 +1,22 @@
+{
+    "name": "@orchestr8/cli",
+    "version": "0.1.0",
+    "description": "CLI for Orchestr8 agentic coding orchestrator",
+    "main": "dist/index.js",
+    "bin": {
+        "orchestr8": "dist/index.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch"
+    },
+    "dependencies": {
+        "dockerode": "^4.0.0",
+        "get-port": "^7.1.0",
+        "open": "^10.0.0",
+        "commander": "^12.0.0"
+    },
+    "devDependencies": {
+        "@types/dockerode": "^3.3.0"
+    }
+}
