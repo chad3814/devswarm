@@ -4,22 +4,208 @@ import Docker from 'dockerode';
 import getPort from 'get-port';
 import open from 'open';
 import { program } from 'commander';
-import { existsSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
+import * as readline from 'readline';
 
-function getGhToken(): string | null {
+const docker = new Docker();
+const IMAGE = 'orchestr8:latest';
+const PORT_RANGE_START = 3814;
+
+// Config directory: XDG_CONFIG_HOME/orchestr8 or ~/.config/orchestr8
+function getConfigDir(): string {
+    const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
+    return join(xdgConfig, 'orchestr8');
+}
+
+function ensureConfigDir(): string {
+    const dir = getConfigDir();
+    if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true });
+    }
+    return dir;
+}
+
+interface Credentials {
+    ghToken?: string;
+    claudeToken?: string;
+}
+
+function loadCredentials(): Credentials {
+    const configDir = getConfigDir();
+    const credsFile = join(configDir, 'credentials.json');
+
+    if (existsSync(credsFile)) {
+        try {
+            return JSON.parse(readFileSync(credsFile, 'utf-8'));
+        } catch {
+            return {};
+        }
+    }
+    return {};
+}
+
+function saveCredentials(creds: Credentials): void {
+    const configDir = ensureConfigDir();
+    const credsFile = join(configDir, 'credentials.json');
+    writeFileSync(credsFile, JSON.stringify(creds, null, 2), { mode: 0o600 });
+}
+
+function getGhTokenFromCli(): string | null {
     try {
-        return execSync('gh auth token', { encoding: 'utf-8' }).trim();
+        return execSync('gh auth token', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
     } catch {
         return null;
     }
 }
 
-const docker = new Docker();
-const IMAGE = 'orchestr8:latest';
-const PORT_RANGE_START = 3814;
+function isGhAuthenticated(): boolean {
+    try {
+        execSync('gh auth status', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function promptGhLogin(): Promise<string | null> {
+    console.log('\nGitHub authentication required.');
+    console.log('Running: gh auth login\n');
+
+    return new Promise((resolve) => {
+        const proc = spawn('gh', ['auth', 'login'], { stdio: 'inherit' });
+        proc.on('close', (code) => {
+            if (code === 0) {
+                resolve(getGhTokenFromCli());
+            } else {
+                resolve(null);
+            }
+        });
+    });
+}
+
+async function setupClaudeToken(): Promise<string | null> {
+    console.log('\nClaude authentication required.');
+    console.log('Running: claude setup-token\n');
+
+    return new Promise((resolve) => {
+        let output = '';
+        const proc = spawn('claude', ['setup-token'], { stdio: ['inherit', 'pipe', 'inherit'] });
+
+        proc.stdout?.on('data', (data: Buffer) => {
+            const text = data.toString();
+            process.stdout.write(text);
+            output += text;
+        });
+
+        proc.on('close', (code) => {
+            if (code === 0) {
+                // Parse the token from output
+                const match = output.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
+                if (match) {
+                    resolve(match[0]);
+                } else {
+                    resolve(null);
+                }
+            } else {
+                resolve(null);
+            }
+        });
+    });
+}
+
+async function promptForApiKey(): Promise<string | null> {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    return new Promise((resolve) => {
+        rl.question('Enter your Anthropic API key (or press Enter to use OAuth): ', (answer) => {
+            rl.close();
+            resolve(answer.trim() || null);
+        });
+    });
+}
+
+async function setupAuth(): Promise<Credentials> {
+    const creds = loadCredentials();
+    let updated = false;
+
+    // GitHub
+    console.log('Checking GitHub authentication...');
+    if (creds.ghToken) {
+        console.log('✓ GitHub token found in config');
+    } else {
+        const token = getGhTokenFromCli();
+        if (token) {
+            console.log('✓ GitHub token retrieved from gh CLI');
+            creds.ghToken = token;
+            updated = true;
+        } else if (isGhAuthenticated()) {
+            // gh is authenticated but we couldn't get token (shouldn't happen)
+            console.log('⚠ GitHub authenticated but could not retrieve token');
+        } else {
+            const newToken = await promptGhLogin();
+            if (newToken) {
+                console.log('✓ GitHub authentication successful');
+                creds.ghToken = newToken;
+                updated = true;
+            } else {
+                console.log('✗ GitHub authentication failed');
+            }
+        }
+    }
+
+    // Claude
+    console.log('\nChecking Claude authentication...');
+    if (creds.claudeToken) {
+        console.log('✓ Claude token found in config');
+    } else {
+        console.log('Choose Claude authentication method:');
+        console.log('1. OAuth (opens browser, creates long-lived token)');
+        console.log('2. API key (enter manually)');
+
+        const rl = readline.createInterface({
+            input: process.stdin,
+            output: process.stdout,
+        });
+
+        const choice = await new Promise<string>((resolve) => {
+            rl.question('Enter choice [1]: ', (answer) => {
+                rl.close();
+                resolve(answer.trim() || '1');
+            });
+        });
+
+        if (choice === '2') {
+            const apiKey = await promptForApiKey();
+            if (apiKey) {
+                creds.claudeToken = apiKey;
+                updated = true;
+                console.log('✓ API key saved');
+            }
+        } else {
+            const token = await setupClaudeToken();
+            if (token) {
+                creds.claudeToken = token;
+                updated = true;
+                console.log('✓ Claude OAuth token saved');
+            } else {
+                console.log('✗ Claude authentication failed');
+            }
+        }
+    }
+
+    if (updated) {
+        saveCredentials(creds);
+        console.log(`\nCredentials saved to ${join(getConfigDir(), 'credentials.json')}`);
+    }
+
+    return creds;
+}
 
 interface RepoInfo {
     owner: string;
@@ -92,6 +278,20 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
         return { port, containerId: existing.Id };
     }
 
+    // Load credentials
+    const creds = loadCredentials();
+    if (!creds.ghToken || !creds.claudeToken) {
+        console.log('Missing credentials. Running setup...\n');
+        const newCreds = await setupAuth();
+        if (!newCreds.ghToken) {
+            throw new Error('GitHub authentication required. Run: orchestr8 auth');
+        }
+        if (!newCreds.claudeToken) {
+            throw new Error('Claude authentication required. Run: orchestr8 auth');
+        }
+        Object.assign(creds, newCreds);
+    }
+
     const port = await findAvailablePort();
 
     try {
@@ -103,27 +303,23 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
     // Build bind mounts
     const binds = [`${volume}:/data`];
 
-    // Mount host Claude credentials if available (to temp location, copied by entrypoint)
-    const hostClaudeJson = join(homedir(), '.claude.json');
-    if (existsSync(hostClaudeJson)) {
-        console.log('Found ~/.claude.json, mounting into container');
-        binds.push(`${hostClaudeJson}:/tmp/host-claude.json:ro`);
-    }
-
     // Build environment variables
     const env = [
         `PORT=${port}`,
         `REPO_URL=${info.url}`,
         `REPO_OWNER=${info.owner}`,
         `REPO_NAME=${info.repo}`,
+        `GH_TOKEN=${creds.ghToken}`,
     ];
 
-    // Get GitHub token from gh CLI (stored in system keychain on macOS)
-    const ghToken = getGhToken();
-    if (ghToken) {
-        console.log('Found GitHub token from gh CLI');
-        env.push(`GH_TOKEN=${ghToken}`);
+    // Claude token - could be OAuth token or API key
+    if (creds.claudeToken?.startsWith('sk-ant-oat')) {
+        env.push(`CLAUDE_CODE_OAUTH_TOKEN=${creds.claudeToken}`);
+    } else {
+        env.push(`ANTHROPIC_API_KEY=${creds.claudeToken}`);
     }
+
+    console.log('Starting container with stored credentials...');
 
     const container = await docker.createContainer({
         Image: IMAGE,
@@ -150,22 +346,6 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
     console.log(`Started container on port ${port}`);
 
     return { port, containerId: container.id };
-}
-
-async function waitForServer(port: number, timeoutMs = 60000): Promise<void> {
-    const start = Date.now();
-
-    while (Date.now() - start < timeoutMs) {
-        try {
-            const res = await fetch(`http://localhost:${port}/health`);
-            if (res.ok) return;
-        } catch {
-            // Not ready yet
-        }
-        await new Promise((r) => setTimeout(r, 500));
-    }
-
-    throw new Error('Server failed to start within timeout');
 }
 
 async function followLogs(containerId: string, onReady: () => void): Promise<void> {
@@ -324,6 +504,40 @@ async function startOrAttach(repoArg: string): Promise<void> {
     });
 }
 
+async function showAuthStatus(): Promise<void> {
+    const creds = loadCredentials();
+    const configDir = getConfigDir();
+
+    console.log(`\nConfig directory: ${configDir}\n`);
+
+    if (creds.ghToken) {
+        console.log(`GitHub:  ✓ Token stored (${creds.ghToken.substring(0, 10)}...)`);
+    } else {
+        console.log('GitHub:  ✗ Not authenticated');
+    }
+
+    if (creds.claudeToken) {
+        const tokenType = creds.claudeToken.startsWith('sk-ant-oat') ? 'OAuth' : 'API key';
+        console.log(`Claude:  ✓ ${tokenType} stored (${creds.claudeToken.substring(0, 15)}...)`);
+    } else {
+        console.log('Claude:  ✗ Not authenticated');
+    }
+
+    console.log('\nRun `orchestr8 auth` to set up or update credentials.');
+}
+
+async function clearAuth(): Promise<void> {
+    const configDir = getConfigDir();
+    const credsFile = join(configDir, 'credentials.json');
+
+    if (existsSync(credsFile)) {
+        writeFileSync(credsFile, '{}', { mode: 0o600 });
+        console.log('Credentials cleared.');
+    } else {
+        console.log('No credentials to clear.');
+    }
+}
+
 program
     .name('orchestr8')
     .description('Agentic coding orchestrator')
@@ -333,6 +547,21 @@ program
     .command('start <repo>')
     .description('Start or attach to an orchestrator for a repository')
     .action(startOrAttach);
+
+program
+    .command('auth')
+    .description('Set up GitHub and Claude authentication')
+    .option('--status', 'Show current authentication status')
+    .option('--clear', 'Clear stored credentials')
+    .action(async (options) => {
+        if (options.status) {
+            await showAuthStatus();
+        } else if (options.clear) {
+            await clearAuth();
+        } else {
+            await setupAuth();
+        }
+    });
 
 program
     .command('list')

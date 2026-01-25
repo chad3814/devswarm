@@ -3,13 +3,13 @@ set -e
 
 # Ensure data directories exist
 mkdir -p /data/{db,state,config}
-mkdir -p /data/config/gh
 mkdir -p /data/config/claude
 
 # Set up git config
 git config --global user.name "Orchestr8"
 git config --global user.email "orchestr8@local"
-git config --global credential.helper '!gh auth git-credential'
+
+# GH_TOKEN is passed via environment variable - git and gh will use it automatically
 
 # Copy default Claude settings if not already present in volume
 if [ ! -f /data/config/claude/settings.json ]; then
@@ -17,25 +17,9 @@ if [ ! -f /data/config/claude/settings.json ]; then
     cp -r ~/.claude/* /data/config/claude/ 2>/dev/null || true
 fi
 
-# Link config directories so tools find their auth
-# Note: GitHub auth uses GH_TOKEN env var passed from host's `gh auth token`
-mkdir -p ~/.config
-ln -sf /data/config/gh ~/.config/gh 2>/dev/null || true
+# Link Claude config directory
 rm -rf ~/.claude 2>/dev/null || true
 ln -sf /data/config/claude ~/.claude
-
-# Handle .claude.json (OAuth account state)
-# Priority: 1) Host-mounted credentials, 2) Existing volume credentials
-if [ -f /tmp/host-claude.json ]; then
-    echo "Using host-mounted Claude credentials"
-    cp /tmp/host-claude.json /data/config/claude.json
-elif [ -f ~/.claude.json ] && [ ! -f /data/config/claude.json ]; then
-    echo "Copying existing .claude.json to volume..."
-    cp ~/.claude.json /data/config/claude.json
-fi
-rm -f ~/.claude.json ~/.claude.json.backup 2>/dev/null || true
-ln -sf /data/config/claude.json ~/.claude.json
-ln -sf /data/config/claude.json.backup ~/.claude.json.backup 2>/dev/null || true
 
 # Verify claude is in PATH
 echo "Claude location: $(which claude || echo 'not found')"
