@@ -9,6 +9,7 @@ mkdir -p /data/config/claude
 # Set up git config
 git config --global user.name "Orchestr8"
 git config --global user.email "orchestr8@local"
+git config --global credential.helper '!gh auth git-credential'
 
 # Copy default Claude settings if not already present in volume
 if [ ! -f /data/config/claude/settings.json ]; then
