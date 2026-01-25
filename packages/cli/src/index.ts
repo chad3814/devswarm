@@ -25,10 +25,11 @@ function parseRepo(input: string): RepoInfo {
         const match = input.match(pattern);
         if (match) {
             const [, owner, repo] = match;
+            const repoName = repo.replace(/\.git$/, '');
             return {
                 owner,
-                repo: repo.replace(/\.git$/, ''),
-                url: `https://github.com/${owner}/${repo}.git`,
+                repo: repoName,
+                url: `https://github.com/${owner}/${repoName}.git`,
             };
         }
     }
@@ -213,7 +214,7 @@ async function stopContainer(repoArg: string): Promise<void> {
     console.log('Container stopped');
 }
 
-async function removeContainer(repoArg: string): Promise<void> {
+async function removeContainer(repoArg: string, options: { purge?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     const name = containerName(info);
     const volume = volumeName(info);
@@ -235,11 +236,15 @@ async function removeContainer(repoArg: string): Promise<void> {
     await container.remove();
     console.log('Container removed');
 
-    try {
-        await docker.getVolume(volume).remove();
-        console.log('Volume removed');
-    } catch {
-        console.log('Volume not found or could not be removed');
+    if (options.purge) {
+        try {
+            await docker.getVolume(volume).remove();
+            console.log('Volume removed');
+        } catch {
+            console.log('Volume not found or could not be removed');
+        }
+    } else {
+        console.log('Volume preserved (use --purge to remove data)');
     }
 }
 
@@ -309,8 +314,9 @@ program
 
 program
     .command('rm <repo>')
-    .description('Remove an orchestrator container and its data')
-    .action(removeContainer);
+    .description('Remove an orchestrator container (preserves data volume)')
+    .option('--purge', 'Also remove the data volume (deletes all data including auth)')
+    .action((repo, options) => removeContainer(repo, options));
 
 program
     .command('logs <repo>')

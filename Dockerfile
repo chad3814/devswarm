@@ -29,10 +29,18 @@ WORKDIR /home/orchestr8
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Verify claude is installed
-RUN ~/.claude/bin/claude --version || echo "Claude CLI installed"
+RUN ~/.local/bin/claude --version || echo "Claude CLI installed"
+
+# Pre-configure Claude settings (theme, etc.) to skip first-run prompts
+RUN mkdir -p ~/.claude && echo '{"theme":"dark","hasCompletedOnboarding":true}' > ~/.claude/settings.json
 
 # Add claude to PATH
-ENV PATH="/home/orchestr8/.claude/bin:${PATH}"
+ENV PATH="/home/orchestr8/.local/bin:${PATH}"
+
+# Configure git to use gh CLI for authentication
+RUN git config --global credential.helper '!gh auth git-credential' \
+    && git config --global user.name "Orchestr8" \
+    && git config --global user.email "orchestr8@localhost"
 
 # App dependencies (copied separately for layer caching)
 COPY --chown=orchestr8:orchestr8 package.json ./

@@ -31,8 +31,11 @@ export class Orchestrator {
 
         if (paused.length > 0) {
             await this.resumeInstances(paused);
-        } else {
-            // Fresh start - create main claude
+        }
+
+        // If main claude wasn't started (either no paused instances or couldn't resume), start fresh
+        if (!this.mainClaude) {
+            console.log('No main claude running, starting fresh...');
             await this.startMainClaude();
         }
 
@@ -99,6 +102,7 @@ export class Orchestrator {
 
         // Set up event handlers
         this.mainClaude.on('output', (data) => {
+            console.log(`[Orchestrator] Main claude output event (${data.length} chars)`);
             this.wsHub.broadcastClaudeOutput('main', data);
         });
 
@@ -126,7 +130,12 @@ Please review and decide what to work on first.
 
     private async resumeInstances(paused: { id: string; resume_id: string | null; role: string; worktree_name: string | null }[]): Promise<void> {
         for (const record of paused) {
-            if (!record.resume_id || !record.worktree_name) continue;
+            if (!record.resume_id || !record.worktree_name) {
+                // Can't resume without resume_id or worktree, mark as stopped
+                console.log(`Cannot resume instance ${record.id} (no resume_id or worktree), marking as stopped`);
+                this.db.updateClaudeInstance(record.id, { status: 'stopped' });
+                continue;
+            }
 
             const wtPath = await this.git.getWorktreePath(record.worktree_name);
 
@@ -298,6 +307,13 @@ All task groups finished. Please review the changes in worktree ${spec.worktree_
     async sendToMain(message: string): Promise<void> {
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(message);
+        }
+    }
+
+    async sendKeysToInstance(instanceId: string, keys: string): Promise<void> {
+        const instance = this.instances.get(instanceId);
+        if (instance) {
+            await instance.sendKeys(keys);
         }
     }
 

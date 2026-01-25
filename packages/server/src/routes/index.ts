@@ -171,6 +171,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         socket.on('message', async (rawData: Buffer) => {
             try {
                 const message = JSON.parse(rawData.toString());
+                console.log(`[WS] Received message: ${message.type}`, message);
 
                 switch (message.type) {
                     case 'subscribe_claude':
@@ -187,6 +188,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
                     case 'send_to_main':
                         await app.orchestrator.sendToMain(message.message);
+                        break;
+
+                    case 'send_keys':
+                        await app.orchestrator.sendKeysToInstance(message.instanceId, message.keys);
                         break;
 
                     case 'shutdown':

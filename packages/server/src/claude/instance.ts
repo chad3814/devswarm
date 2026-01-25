@@ -17,13 +17,29 @@ export interface ClaudeInstanceOptions {
     contextId?: string;
 }
 
+/**
+ * ClaudeInstance manages a Claude CLI session using print mode.
+ *
+ * Instead of running Claude interactively (which triggers onboarding prompts),
+ * we keep a shell in a tmux pane and invoke Claude with -p (print mode) for each message.
+ * The --continue flag maintains conversation context within the same directory.
+ *
+ * This approach:
+ * - Avoids interactive onboarding prompts
+ * - Maintains conversation context via --continue
+ * - Allows reliable output capture
+ * - Works in automated/headless environments
+ */
 export class ClaudeInstance extends EventEmitter {
     private paneInfo?: PaneInfo;
     private poller?: PanePoller;
     private outputBuffer = '';
+    private isProcessing = false;
+    private sessionId?: string;
 
     constructor(private options: ClaudeInstanceOptions) {
         super();
+        this.sessionId = options.resumeId;
     }
 
     get id(): string {
@@ -41,21 +57,20 @@ export class ClaudeInstance extends EventEmitter {
     async start(): Promise<void> {
         const { id, role, db, tmux, worktreePath, resumeId } = this.options;
 
-        // Create tmux window
+        // Create tmux window with a shell (not Claude directly)
         const windowName = `${role}-${id.slice(0, 8)}`;
+        console.log(`[Claude ${id}] Creating tmux window: ${windowName}`);
         this.paneInfo = await tmux.createWindow(windowName);
+        console.log(`[Claude ${id}] Created pane: ${this.paneInfo.paneId}, window: ${this.paneInfo.windowId}`);
 
-        // Build claude command
-        let cmd = `cd ${worktreePath} && claude`;
-        if (resumeId) {
-            cmd += ` --resume ${resumeId}`;
-        }
-
-        // Start claude
-        await tmux.sendCommand(this.paneInfo.paneId, cmd);
+        // Change to worktree directory
+        const cdCmd = `cd ${worktreePath}`;
+        console.log(`[Claude ${id}] Changing to worktree: ${cdCmd}`);
+        await tmux.sendCommand(this.paneInfo.paneId, cdCmd);
 
         // Update db
         db.createClaudeInstance({
+            id,
             role,
             tmux_pane: this.paneInfo.paneId,
             tmux_window: this.paneInfo.windowId,
@@ -68,6 +83,8 @@ export class ClaudeInstance extends EventEmitter {
 
         // Start output capture
         this.startCapture();
+
+        console.log(`[Claude ${id}] Ready for messages (print mode)`);
     }
 
     private startCapture(): void {
@@ -100,20 +117,72 @@ export class ClaudeInstance extends EventEmitter {
             this.emit('task_complete');
         }
 
-        // Check for resume ID on exit
+        // Check for resume ID in output
         const resumeMatch = data.match(/Resume ID: ([a-zA-Z0-9_-]+)/);
         if (resumeMatch) {
+            this.sessionId = resumeMatch[1];
             this.emit('resume_id', resumeMatch[1]);
+        }
+
+        // Check for session ID in Claude's output (format varies)
+        const sessionMatch = data.match(/session[:\s]+([a-f0-9-]{36})/i);
+        if (sessionMatch && !this.sessionId) {
+            this.sessionId = sessionMatch[1];
         }
     }
 
+    /**
+     * Send a message to Claude using print mode.
+     * Uses --continue to maintain conversation context.
+     */
     async sendMessage(message: string): Promise<void> {
         if (!this.paneInfo) {
             throw new Error('Claude instance not started');
         }
 
-        await this.options.tmux.sendText(this.paneInfo.paneId, message);
-        await this.options.tmux.sendKeys(this.paneInfo.paneId, 'Enter');
+        if (this.isProcessing) {
+            console.log(`[Claude ${this.id}] Already processing, queueing message`);
+            // Could implement a queue here if needed
+            return;
+        }
+
+        this.isProcessing = true;
+
+        // Escape the message for shell - use base64 to handle any special characters
+        const base64Message = Buffer.from(message).toString('base64');
+
+        // Build the claude command
+        // Use -p for print mode, --continue to maintain context, --dangerously-skip-permissions
+        let cmd = `echo "${base64Message}" | base64 -d | claude -p --dangerously-skip-permissions`;
+
+        // Use --continue to maintain conversation in this directory
+        // Or --resume if we have a session ID
+        if (this.sessionId) {
+            cmd += ` --resume ${this.sessionId}`;
+        } else {
+            cmd += ` --continue`;
+        }
+
+        console.log(`[Claude ${this.id}] Sending message (${message.length} chars)`);
+
+        // Clear output buffer before new message
+        this.outputBuffer = '';
+
+        await this.options.tmux.sendCommand(this.paneInfo.paneId, cmd);
+
+        // Note: isProcessing will be cleared when we detect the command completes
+        // For now, just set a reasonable timeout
+        setTimeout(() => {
+            this.isProcessing = false;
+        }, 5000);
+    }
+
+    async sendKeys(keys: string): Promise<void> {
+        if (!this.paneInfo) {
+            throw new Error('Claude instance not started');
+        }
+
+        await this.options.tmux.sendKeys(this.paneInfo.paneId, keys);
     }
 
     async interrupt(): Promise<string | null> {
@@ -121,20 +190,11 @@ export class ClaudeInstance extends EventEmitter {
             return null;
         }
 
-        // Send Ctrl+C
+        // Send Ctrl+C to interrupt any running claude command
         await this.options.tmux.sendKeys(this.paneInfo.paneId, 'C-c');
 
-        // Wait for resume ID
-        return new Promise((resolve) => {
-            const timeout = setTimeout(() => {
-                resolve(null);
-            }, 10000);
-
-            this.once('resume_id', (resumeId: string) => {
-                clearTimeout(timeout);
-                resolve(resumeId);
-            });
-        });
+        // Return current session ID if we have one
+        return this.sessionId || null;
     }
 
     async stop(): Promise<void> {
@@ -146,7 +206,10 @@ export class ClaudeInstance extends EventEmitter {
             await this.options.tmux.killWindow(this.paneInfo.windowId);
         }
 
-        this.options.db.updateClaudeInstance(this.id, { status: 'stopped' });
+        this.options.db.updateClaudeInstance(this.id, {
+            status: 'stopped',
+            resume_id: this.sessionId || null,
+        });
     }
 
     getRecord(): ClaudeInstanceRecord | undefined {

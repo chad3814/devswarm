@@ -53,11 +53,15 @@ export class WebSocketHub {
             data,
         });
 
+        let sentCount = 0;
         for (const client of this.clients) {
+            console.log(`[WS] Client subscribed to: [${Array.from(client.subscribedClaudes).join(', ')}], looking for: ${instanceId}`);
             if (client.subscribedClaudes.has(instanceId) && client.ws.readyState === WebSocket.OPEN) {
                 client.ws.send(message);
+                sentCount++;
             }
         }
+        console.log(`[WS] broadcastClaudeOutput(${instanceId}): sent to ${sentCount}/${this.clients.size} clients`);
     }
 
     broadcastQuestion(question: UserQuestion): void {
@@ -96,10 +100,12 @@ export class WebSocketHub {
     }
 
     subscribeToClaudeOutput(client: Client, instanceId: string): void {
+        console.log(`[WS] Client subscribing to claude: ${instanceId}`);
         client.subscribedClaudes.add(instanceId);
     }
 
     unsubscribeFromClaudeOutput(client: Client, instanceId: string): void {
+        console.log(`[WS] Client unsubscribing from claude: ${instanceId}`);
         client.subscribedClaudes.delete(instanceId);
     }
 }

@@ -315,14 +315,14 @@ export class Db {
     }
 
     // Claude Instances
-    createClaudeInstance(instance: Omit<ClaudeInstance, 'id' | 'created_at' | 'updated_at'>): ClaudeInstance {
-        const id = nanoid();
+    createClaudeInstance(instance: Omit<ClaudeInstance, 'created_at' | 'updated_at'>): ClaudeInstance {
+        // Use INSERT OR REPLACE to handle cases where an instance with the same ID already exists (e.g., restarting main)
         const stmt = this.db.prepare(`
-            INSERT INTO claude_instances (id, role, tmux_pane, tmux_window, resume_id, status, context_type, context_id, worktree_name)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO claude_instances (id, role, tmux_pane, tmux_window, resume_id, status, context_type, context_id, worktree_name, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, unixepoch(), unixepoch())
         `);
-        stmt.run(id, instance.role, instance.tmux_pane, instance.tmux_window, instance.resume_id, instance.status, instance.context_type, instance.context_id, instance.worktree_name);
-        return this.getClaudeInstance(id)!;
+        stmt.run(instance.id, instance.role, instance.tmux_pane, instance.tmux_window, instance.resume_id, instance.status, instance.context_type, instance.context_id, instance.worktree_name);
+        return this.getClaudeInstance(instance.id)!;
     }
 
     getClaudeInstance(id: string): ClaudeInstance | undefined {

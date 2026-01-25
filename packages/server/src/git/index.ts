@@ -1,4 +1,4 @@
-import { exec as execCb } from 'child_process';
+import { exec as execCb, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
@@ -35,7 +35,6 @@ export class GitManager {
     }
 
     private startGitDaemon(): void {
-        const { spawn } = require('child_process');
         spawn('git', [
             'daemon',
             '--reuseaddr',

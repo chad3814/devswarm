@@ -108,12 +108,13 @@ export class PanePoller extends EventEmitter {
                 // Find new content
                 const newContent = this.findNewContent(this.lastContent, content);
                 if (newContent) {
+                    console.log(`[PanePoller ${this.paneId}] New content (${newContent.length} chars)`);
                     this.emit('data', newContent);
                 }
                 this.lastContent = content;
             }
-        } catch {
-            // Pane may be gone
+        } catch (e) {
+            console.error(`[PanePoller ${this.paneId}] Error capturing pane:`, e);
         }
     }
 

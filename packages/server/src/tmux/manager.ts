@@ -13,8 +13,17 @@ export class TmuxManager {
     constructor(private sessionName: string) {}
 
     private async run(cmd: string): Promise<string> {
-        const { stdout } = await exec(cmd);
-        return stdout.trim();
+        console.log(`[Tmux] Running: ${cmd}`);
+        try {
+            const { stdout, stderr } = await exec(cmd);
+            if (stderr) {
+                console.log(`[Tmux] stderr: ${stderr}`);
+            }
+            return stdout.trim();
+        } catch (e) {
+            console.error(`[Tmux] Error running command:`, e);
+            throw e;
+        }
     }
 
     async createWindow(name: string): Promise<PaneInfo> {
