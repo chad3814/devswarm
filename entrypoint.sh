@@ -22,4 +22,4 @@ if [ -d /data/bare.git ]; then
 fi
 
 # Start the server (logs to stdout for docker logs)
-exec node dist/server/index.js
+exec node ./packages/server/dist/index.js
