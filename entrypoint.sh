@@ -17,14 +17,8 @@ if [ ! -f /data/config/claude/settings.json ]; then
     cp -r ~/.claude/* /data/config/claude/ 2>/dev/null || true
 fi
 
-# Handle gh credentials
-# Priority: 1) Host-mounted credentials, 2) Existing volume credentials
-if [ -d /tmp/host-gh ]; then
-    echo "Using host-mounted GitHub credentials"
-    cp -r /tmp/host-gh/* /data/config/gh/
-fi
-
 # Link config directories so tools find their auth
+# Note: GitHub auth uses GH_TOKEN env var passed from host's `gh auth token`
 mkdir -p ~/.config
 ln -sf /data/config/gh ~/.config/gh 2>/dev/null || true
 rm -rf ~/.claude 2>/dev/null || true

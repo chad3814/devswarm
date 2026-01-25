@@ -7,6 +7,15 @@ import { program } from 'commander';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
+import { execSync } from 'child_process';
+
+function getGhToken(): string | null {
+    try {
+        return execSync('gh auth token', { encoding: 'utf-8' }).trim();
+    } catch {
+        return null;
+    }
+}
 
 const docker = new Docker();
 const IMAGE = 'orchestr8:latest';
@@ -94,28 +103,32 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
     // Build bind mounts
     const binds = [`${volume}:/data`];
 
-    // Mount host credentials if available (to temp location, copied by entrypoint)
+    // Mount host Claude credentials if available (to temp location, copied by entrypoint)
     const hostClaudeJson = join(homedir(), '.claude.json');
     if (existsSync(hostClaudeJson)) {
         console.log('Found ~/.claude.json, mounting into container');
         binds.push(`${hostClaudeJson}:/tmp/host-claude.json:ro`);
     }
 
-    const hostGhConfig = join(homedir(), '.config', 'gh');
-    if (existsSync(hostGhConfig)) {
-        console.log('Found ~/.config/gh, mounting into container');
-        binds.push(`${hostGhConfig}:/tmp/host-gh:ro`);
+    // Build environment variables
+    const env = [
+        `PORT=${port}`,
+        `REPO_URL=${info.url}`,
+        `REPO_OWNER=${info.owner}`,
+        `REPO_NAME=${info.repo}`,
+    ];
+
+    // Get GitHub token from gh CLI (stored in system keychain on macOS)
+    const ghToken = getGhToken();
+    if (ghToken) {
+        console.log('Found GitHub token from gh CLI');
+        env.push(`GH_TOKEN=${ghToken}`);
     }
 
     const container = await docker.createContainer({
         Image: IMAGE,
         name,
-        Env: [
-            `PORT=${port}`,
-            `REPO_URL=${info.url}`,
-            `REPO_OWNER=${info.owner}`,
-            `REPO_NAME=${info.repo}`,
-        ],
+        Env: env,
         Labels: {
             'orchestr8.port': String(port),
             'orchestr8.repo': `${info.owner}/${info.repo}`,
