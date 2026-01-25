@@ -1,10 +1,10 @@
 {
-    "name": "@orchestr8/cli",
+    "name": "@devswarm/cli",
     "version": "0.1.0",
-    "description": "CLI for Orchestr8 agentic coding orchestrator",
+    "description": "CLI for DevSwarm agentic coding orchestrator",
     "main": "dist/index.js",
     "bin": {
-        "orchestr8": "dist/index.js"
+        "devswarm": "dist/index.js"
     },
     "scripts": {
         "build": "tsc",
@@ -12,15 +12,15 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/chad3814/orchestr8.git",
+        "url": "https://github.com/chad3814/devswarm.git",
         "directory": "packages/cli"
     },
-    "homepage": "https://github.com/chad3814/orchestr8#readme",
+    "homepage": "https://github.com/chad3814/devswarm#readme",
     "bugs": {
-        "url": "https://github.com/chad3814/orchestr8/issues"
+        "url": "https://github.com/chad3814/devswarm/issues"
     },
     "keywords": [
-        "orchestr8",
+        "devswarm",
         "orchestrator",
         "claude",
         "ai",

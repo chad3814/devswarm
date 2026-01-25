@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Orchestr8 is an agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks. It's a monorepo with three packages deployed in a Docker container, coordinated through a web dashboard.
+DevSwarm is an agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks. It's a monorepo with three packages deployed in a Docker container, coordinated through a web dashboard.
 
 ## Build Commands
 
@@ -17,9 +17,9 @@ npm run clean      # Remove all dist/ directories
 
 Individual package builds from root:
 ```bash
-npm run build -w @orchestr8/cli
-npm run build -w @orchestr8/server
-npm run build -w @orchestr8/web
+npm run build -w @devswarm/cli
+npm run build -w @devswarm/server
+npm run build -w @devswarm/web
 ```
 
 ## Architecture
@@ -28,7 +28,7 @@ npm run build -w @orchestr8/web
 
 ```
 HOST (Local Machine)
-└─ orchestr8 CLI (Docker orchestration)
+└─ devswarm CLI (Docker orchestration)
 
 CONTAINER (Docker)
 ├─ Fastify Server + React Frontend (port 3814-3850)

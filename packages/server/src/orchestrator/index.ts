@@ -257,6 +257,11 @@ Please review and decide what to work on first.
             this.wsHub.broadcastQuestion(q);
         });
 
+        overseer.on('idle', () => {
+            console.log(`[Orchestrator] Overseer ${overseer.id} is idle, checking completion for spec ${spec.id}`);
+            this.checkSpecCompletion(spec.id);
+        });
+
         // Send spec to overseer
         await overseer.sendMessage(`
 ${OVERSEER_PROMPT}
@@ -272,23 +277,43 @@ ${spec.content}
         const inProgress = this.db.getSpecs({ status: 'in_progress' });
 
         for (const spec of inProgress) {
-            const taskGroups = this.db.getTaskGroupsForSpec(spec.id);
-            const allDone = taskGroups.every((tg) => tg.status === 'done');
+            await this.checkSpecCompletion(spec.id);
+        }
+    }
 
-            if (allDone && taskGroups.length > 0) {
-                // Spec implementation is complete
-                this.db.updateSpec(spec.id, { status: 'merging' });
-                // Notify main claude to review and merge
-                if (this.mainClaude) {
-                    await this.mainClaude.sendMessage(`
-Spec implementation complete: ${spec.id}
+    private async checkSpecCompletion(specId: string): Promise<void> {
+        const spec = this.db.getSpec(specId);
+        if (!spec || spec.status !== 'in_progress') return;
 
-All task groups finished. Please review the changes in worktree ${spec.worktree_name} and either:
+        const taskGroups = this.db.getTaskGroupsForSpec(specId);
+
+        // Check if all task groups are done (if any exist)
+        const allTaskGroupsDone = taskGroups.length === 0 || taskGroups.every((tg) => tg.status === 'done');
+
+        // Check if the spec itself was marked done by the overseer
+        // Or if the overseer completed without creating task groups (simpler implementation)
+        if (allTaskGroupsDone) {
+            console.log(`[Orchestrator] Spec ${specId} appears complete, notifying main claude`);
+
+            // Mark spec as ready for review
+            this.db.updateSpec(specId, { status: 'merging' });
+
+            // Notify main claude to review and merge
+            if (this.mainClaude) {
+                await this.mainClaude.sendMessage(`
+Spec implementation complete: ${specId}
+
+The overseer has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
 1. Merge directly to main if everything looks good
 2. Create a PR for review
-                    `);
-                }
+3. Request changes if something needs to be fixed
+
+Use \`o8 spec update ${specId} -s done\` after merging, or \`o8 spec update ${specId} -s in_progress\` if changes are needed.
+                `);
             }
+
+            // Broadcast state update
+            this.wsHub.broadcastState(this.db);
         }
     }
 

@@ -107,6 +107,7 @@ export class ClaudeInstance extends EventEmitter {
         this.process.on('close', (code) => {
             console.log(`[Claude ${this.id}] Process exited (code ${code})`);
             this.emit('message_complete');
+            this.emit('idle'); // Signal that this instance is now idle
         });
 
         this.process.on('error', (err) => {

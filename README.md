@@ -1,4 +1,4 @@
-# Orchestr8
+# DevSwarm
 
 An agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks.
 
@@ -9,10 +9,10 @@ An agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmu
 │  Host Machine                                                       │
 │                                                                     │
 │  ┌──────────┐         ┌──────────────────────────────────────────┐  │
-│  │ orchestr8│ docker  │  Container: orchestr8-owner-repo         │  │
+│  │ devswarm │ docker  │  Container: devswarm-owner-repo          │  │
 │  │ CLI      │────────▶│                                          │  │
 │  └──────────┘         │  ┌─────────────────────────────────────┐ │  │
-│       │               │  │ tmux session: orchestr8             │ │  │
+│       │               │  │ tmux session: devswarm              │ │  │
 │       │ opens         │  │ ┌─────────┬─────────┬─────────┐     │ │  │
 │       │ browser       │  │ │ main    │ spec-1  │ worker-1│ ... │ │  │
 │       ▼               │  │ │ claude  │ claude  │ claude  │     │ │  │
@@ -54,8 +54,8 @@ An agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmu
 
 ```bash
 # Clone this repo
-git clone https://github.com/your-username/orchestr8.git
-cd orchestr8
+git clone https://github.com/your-username/devswarm.git
+cd devswarm
 
 # Install dependencies
 npm install
@@ -64,7 +64,7 @@ npm install
 npm run build
 
 # Build Docker image
-docker build -t orchestr8:latest .
+docker build -t devswarm:latest .
 
 # Install CLI globally
 npm install -g ./packages/cli
@@ -73,26 +73,26 @@ npm install -g ./packages/cli
 ## Usage
 
 ```bash
-# Start orchestr8 for a repository
-orchestr8 owner/repo
-orchestr8 https://github.com/owner/repo
+# Start devswarm for a repository
+devswarm owner/repo
+devswarm https://github.com/owner/repo
 
 # List running orchestrators
-orchestr8 list
+devswarm list
 
 # Graceful shutdown
-orchestr8 stop owner/repo
+devswarm stop owner/repo
 
 # Remove container and data
-orchestr8 rm owner/repo
+devswarm rm owner/repo
 
 # View logs
-orchestr8 logs owner/repo
+devswarm logs owner/repo
 ```
 
 ## How It Works
 
-1. **Initialization**: When you run `orchestr8 owner/repo`, it:
+1. **Initialization**: When you run `devswarm owner/repo`, it:
    - Creates a Docker container with all dependencies
    - Clones the repository as a bare repo
    - Creates a main worktree
@@ -118,7 +118,7 @@ orchestr8 logs owner/repo
 ## Project Structure
 
 ```
-orchestr8/
+devswarm/
 ├── packages/
 │   ├── cli/          # Host CLI for managing containers
 │   ├── server/       # Fastify server with WebSocket

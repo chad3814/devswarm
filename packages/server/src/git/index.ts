@@ -55,7 +55,7 @@ export class GitManager {
 
     async createWorktree(name: string, baseBranch = 'main'): Promise<string> {
         const wtPath = path.join(this.worktreesPath, name);
-        const branchName = name === 'main' ? 'main' : `orchestr8/${name}`;
+        const branchName = name === 'main' ? 'main' : `devswarm/${name}`;
 
         if (name === 'main') {
             await this.git(`worktree add ${wtPath} ${baseBranch}`);
@@ -71,7 +71,7 @@ export class GitManager {
         const sourceCommit = await this.git('rev-parse HEAD', sourceWt);
 
         const wtPath = path.join(this.worktreesPath, newName);
-        const branchName = `orchestr8/${newName}`;
+        const branchName = `devswarm/${newName}`;
 
         await this.git(`worktree add -b ${branchName} ${wtPath} ${sourceCommit}`);
 

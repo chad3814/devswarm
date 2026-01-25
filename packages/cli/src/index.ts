@@ -12,17 +12,17 @@ import * as readline from 'readline';
 
 const docker = new Docker();
 const DEFAULT_TAG = 'dev';
-const IMAGE_REPO = 'ghcr.io/chad3814/orchestr8';
+const IMAGE_REPO = 'ghcr.io/chad3814/devswarm';
 const PORT_RANGE_START = 3814;
 
 function getImageName(tag: string = DEFAULT_TAG): string {
     return `${IMAGE_REPO}:${tag}`;
 }
 
-// Config directory: XDG_CONFIG_HOME/orchestr8 or ~/.config/orchestr8
+// Config directory: XDG_CONFIG_HOME/devswarm or ~/.config/devswarm
 function getConfigDir(): string {
     const xdgConfig = process.env.XDG_CONFIG_HOME || join(homedir(), '.config');
-    return join(xdgConfig, 'orchestr8');
+    return join(xdgConfig, 'devswarm');
 }
 
 function ensureConfigDir(): string {
@@ -243,11 +243,11 @@ function parseRepo(input: string): RepoInfo {
 }
 
 function containerName(info: RepoInfo): string {
-    return `orchestr8-${info.owner}-${info.repo}`;
+    return `devswarm-${info.owner}-${info.repo}`;
 }
 
 function volumeName(info: RepoInfo): string {
-    return `orchestr8-${info.owner}-${info.repo}-data`;
+    return `devswarm-${info.owner}-${info.repo}-data`;
 }
 
 async function findAvailablePort(): Promise<number> {
@@ -256,9 +256,9 @@ async function findAvailablePort(): Promise<number> {
 
 async function getContainerPort(container: Docker.Container): Promise<number> {
     const info = await container.inspect();
-    const portLabel = info.Config.Labels?.['orchestr8.port'];
+    const portLabel = info.Config.Labels?.['devswarm.port'];
     if (!portLabel) {
-        throw new Error('Container missing orchestr8.port label');
+        throw new Error('Container missing devswarm.port label');
     }
     return parseInt(portLabel, 10);
 }
@@ -273,14 +273,14 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         const existing = containers[0];
 
         if (existing.State === 'running') {
-            const port = parseInt(existing.Labels['orchestr8.port'], 10);
+            const port = parseInt(existing.Labels['devswarm.port'], 10);
             console.log(`Container already running on port ${port}`);
             return { port, containerId: existing.Id };
         }
 
         const container = docker.getContainer(existing.Id);
         await container.start();
-        const port = parseInt(existing.Labels['orchestr8.port'], 10);
+        const port = parseInt(existing.Labels['devswarm.port'], 10);
         console.log(`Resumed container on port ${port}`);
         return { port, containerId: existing.Id };
     }
@@ -294,10 +294,10 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         console.log('Missing credentials. Running setup...\n');
         const newCreds = await setupAuth();
         if (!newCreds.ghToken) {
-            throw new Error('GitHub authentication required. Run: orchestr8 auth');
+            throw new Error('GitHub authentication required. Run: devswarm auth');
         }
         if (!newCreds.claudeToken) {
-            throw new Error('Claude authentication required. Run: orchestr8 auth');
+            throw new Error('Claude authentication required. Run: devswarm auth');
         }
         Object.assign(creds, newCreds);
     }
@@ -332,8 +332,8 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         name,
         Env: env,
         Labels: {
-            'orchestr8.port': String(port),
-            'orchestr8.repo': `${info.owner}/${info.repo}`,
+            'devswarm.port': String(port),
+            'devswarm.repo': `${info.owner}/${info.repo}`,
         },
         HostConfig: {
             Binds: binds,
@@ -374,18 +374,18 @@ async function followLogs(containerId: string, onReady: () => void): Promise<voi
 async function listContainers(): Promise<void> {
     const containers = await docker.listContainers({
         all: true,
-        filters: { label: ['orchestr8.repo'] },
+        filters: { label: ['devswarm.repo'] },
     });
 
     if (containers.length === 0) {
-        console.log('No orchestr8 containers found');
+        console.log('No devswarm containers found');
         return;
     }
 
-    console.log('\nOrchestrator containers:\n');
+    console.log('\nDevSwarm containers:\n');
     for (const c of containers) {
-        const repo = c.Labels['orchestr8.repo'];
-        const port = c.Labels['orchestr8.port'];
+        const repo = c.Labels['devswarm.repo'];
+        const port = c.Labels['devswarm.port'];
         const state = c.State;
         console.log(`  ${repo.padEnd(40)} ${state.padEnd(10)} port ${port}`);
     }
@@ -490,7 +490,7 @@ async function tailLogs(repoArg: string): Promise<void> {
 
 async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
-    console.log(`Starting orchestr8 for ${info.owner}/${info.repo}...`);
+    console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
 
     const tag = options.tag || DEFAULT_TAG;
     const forcePull = options.pull || false;
@@ -531,7 +531,7 @@ async function showAuthStatus(): Promise<void> {
         console.log('Claude:  ✗ Not authenticated');
     }
 
-    console.log('\nRun `orchestr8 auth` to set up or update credentials.');
+    console.log('\nRun `devswarm auth` to set up or update credentials.');
 }
 
 async function clearAuth(): Promise<void> {
@@ -556,7 +556,7 @@ program.version(VERSION, '-v, --version', 'Display version information');
 program.commands.forEach((cmd) => {
     if (cmd.name() === 'version') {
         cmd.action(() => {
-            console.log(`orchestr8 CLI version: ${VERSION}`);
+            console.log(`devswarm CLI version: ${VERSION}`);
             console.log(`Default image: ${getImageName()}`);
             console.log(`Image repository: ${IMAGE_REPO}`);
             console.log(`Default tag: ${DEFAULT_TAG}`);
@@ -568,7 +568,7 @@ program.commands.forEach((cmd) => {
 if (process.argv.includes('--version') || process.argv.includes('-v')) {
     const versionIndex = process.argv.findIndex(arg => arg === '--version' || arg === '-v');
     if (versionIndex === 2 || (versionIndex > 2 && !process.argv[2].startsWith('-'))) {
-        console.log(`orchestr8 CLI version: ${VERSION}`);
+        console.log(`devswarm CLI version: ${VERSION}`);
         console.log(`Default image: ${getImageName()}`);
         console.log(`Image repository: ${IMAGE_REPO}`);
         console.log(`Default tag: ${DEFAULT_TAG}`);
@@ -600,7 +600,7 @@ program
 
 program
     .command('list')
-    .description('List all orchestr8 containers')
+    .description('List all devswarm containers')
     .action(listContainers);
 
 program

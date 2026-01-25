@@ -1,10 +1,10 @@
 # Deployment & Publishing
 
-This document describes the automated deployment and publishing process for Orchestr8.
+This document describes the automated deployment and publishing process for DevSwarm.
 
 ## NPM Publishing
 
-The `@orchestr8/cli` package is automatically published to npm via GitHub Actions.
+The `@devswarm/cli` package is automatically published to npm via GitHub Actions.
 
 ### Publishing Strategy
 
@@ -12,13 +12,13 @@ The `@orchestr8/cli` package is automatically published to npm via GitHub Action
 - Published with `dev` tag
 - Version format: `{base}-dev.{timestamp}.{shortSHA}`
 - Example: `0.1.0-dev.20250125221530.abc1234`
-- Install with: `npm install -g @orchestr8/cli@dev`
+- Install with: `npm install -g @devswarm/cli@dev`
 
 **Release versions** (from `release` branch):
 - Published with `latest` tag
 - Version format: `{base}` (from package.json)
 - Example: `0.1.0`
-- Install with: `npm install -g @orchestr8/cli`
+- Install with: `npm install -g @devswarm/cli`
 
 ### Setup Requirements
 
@@ -28,8 +28,8 @@ The package uses npm's Trusted Publishing feature, which authenticates via GitHu
 
 **One-time Configuration (already completed):**
 
-The `@orchestr8/cli` package on npmjs.com is configured to trust GitHub Actions from this repository:
-- Repository: `chad3814/orchestr8`
+The `@devswarm/cli` package on npmjs.com is configured to trust GitHub Actions from this repository:
+- Repository: `chad3814/devswarm`
 - Workflow: `.github/workflows/npm-publish.yml`
 
 **How it works:**
@@ -43,7 +43,7 @@ The `@orchestr8/cli` package on npmjs.com is configured to trust GitHub Actions 
 2. Navigate to package settings → "Publishing Access" → "Automation tokens"
 3. Add GitHub Actions as trusted publisher:
    - Provider: GitHub Actions
-   - Repository: `chad3814/orchestr8`
+   - Repository: `chad3814/devswarm`
    - Workflow: `.github/workflows/npm-publish.yml`
    - Environment: (leave empty)
 4. Save configuration
@@ -82,7 +82,7 @@ All published packages include npm provenance attestation via Trusted Publishing
 **Development workflow:**
 - Work on `main` branch
 - Each push publishes a new dev version
-- Users can test latest: `npm install -g @orchestr8/cli@dev`
+- Users can test latest: `npm install -g @devswarm/cli@dev`
 
 **Release workflow:**
 1. Update version in `packages/cli/package.json` (e.g., `0.2.0`)
@@ -113,7 +113,7 @@ npm publish --tag latest --access public
 **"Invalid token" or authentication errors**
 - Ensure `id-token: write` permission is present in workflow (already configured)
 - Workflow name must match exactly: `.github/workflows/npm-publish.yml`
-- Repository must match: `chad3814/orchestr8`
+- Repository must match: `chad3814/devswarm`
 
 **"You cannot publish over the previously published versions"**
 - Version already exists on npm (this is normal)
@@ -121,7 +121,7 @@ npm publish --tag latest --access public
 - Bump version in package.json if publishing manually
 
 **"Package name too similar to existing package"**
-- Scoped package name `@orchestr8/cli` prevents conflicts
+- Scoped package name `@devswarm/cli` prevents conflicts
 - Ensure `publishConfig.access: "public"` is set
 
 **Workflow not triggering:**
@@ -148,14 +148,14 @@ Before creating a release:
 - [ ] README.md reflects any CLI changes
 - [ ] Merge PR to `release` branch
 - [ ] Verify workflow completes successfully
-- [ ] Test install: `npm install -g @orchestr8/cli@latest`
-- [ ] Verify binary works: `orchestr8 --version`
+- [ ] Test install: `npm install -g @devswarm/cli@latest`
+- [ ] Verify binary works: `devswarm --version`
 - [ ] Create GitHub release with tag
 - [ ] Announce release in relevant channels
 
 ## Monitoring
 
 Monitor published packages:
-- npm package page: https://www.npmjs.com/package/@orchestr8/cli
+- npm package page: https://www.npmjs.com/package/@devswarm/cli
 - GitHub Actions runs: Repository → Actions → "Publish to npm"
 - Download stats: npm package page → "Versions" tab

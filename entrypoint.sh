@@ -6,8 +6,8 @@ mkdir -p /data/{db,state,config}
 mkdir -p /data/config/claude
 
 # Set up git config
-git config --global user.name "Orchestr8"
-git config --global user.email "orchestr8@local"
+git config --global user.name "DevSwarm"
+git config --global user.email "devswarm@local"
 
 # GH_TOKEN is passed via environment variable - git and gh will use it automatically
 

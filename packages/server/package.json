@@ -1,8 +1,8 @@
 {
-    "name": "@orchestr8/server",
+    "name": "@devswarm/server",
     "version": "0.1.0",
     "type": "module",
-    "description": "Server for Orchestr8 agentic coding orchestrator",
+    "description": "Server for DevSwarm agentic coding orchestrator",
     "main": "dist/index.js",
     "bin": {
         "o8": "./dist/cli/o8.js"

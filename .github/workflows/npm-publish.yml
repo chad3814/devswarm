@@ -94,7 +94,7 @@ jobs:
       - name: Check if version already published
         id: check
         run: |
-          if npm view @orchestr8/cli@${{ steps.version.outputs.version }} version 2>/dev/null; then
+          if npm view @devswarm/cli@${{ steps.version.outputs.version }} version 2>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "Version ${{ steps.version.outputs.version }} already published, skipping"
           else

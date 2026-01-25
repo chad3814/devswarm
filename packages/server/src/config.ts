@@ -6,7 +6,7 @@ export const config = {
 
     // Paths
     dataDir: '/data',
-    dbPath: '/data/db/orchestr8.sqlite',
+    dbPath: '/data/db/devswarm.sqlite',
     bareRepoPath: '/data/bare.git',
     worktreesPath: '/data/worktrees',
     statePath: '/data/state',
