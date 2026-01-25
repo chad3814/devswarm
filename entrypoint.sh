@@ -22,6 +22,16 @@ ln -sf /data/config/gh ~/.config/gh 2>/dev/null || true
 rm -rf ~/.claude 2>/dev/null || true
 ln -sf /data/config/claude ~/.claude
 
+# Also persist .claude.json (separate from .claude directory)
+# This file contains OAuth account state that must persist
+if [ -f ~/.claude.json ] && [ ! -f /data/config/claude.json ]; then
+    echo "Copying existing .claude.json to volume..."
+    cp ~/.claude.json /data/config/claude.json
+fi
+rm -f ~/.claude.json ~/.claude.json.backup 2>/dev/null || true
+ln -sf /data/config/claude.json ~/.claude.json
+ln -sf /data/config/claude.json.backup ~/.claude.json.backup 2>/dev/null || true
+
 # Verify claude is in PATH
 echo "Claude location: $(which claude || echo 'not found')"
 

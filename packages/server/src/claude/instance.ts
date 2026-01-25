@@ -17,25 +17,33 @@ export interface ClaudeInstanceOptions {
     contextId?: string;
 }
 
+interface ClaudeStreamMessage {
+    type: 'system' | 'assistant' | 'result' | 'user';
+    subtype?: string;
+    message?: {
+        content?: Array<{ type: string; text?: string }>;
+    };
+    result?: string;
+    session_id?: string;
+}
+
 /**
- * ClaudeInstance manages a Claude CLI session using print mode.
+ * ClaudeInstance manages a Claude CLI session using print mode with streaming JSON.
  *
- * Instead of running Claude interactively (which triggers onboarding prompts),
- * we keep a shell in a tmux pane and invoke Claude with -p (print mode) for each message.
- * The --continue flag maintains conversation context within the same directory.
+ * Uses `claude -p --output-format=stream-json` for each message, which:
+ * - Avoids interactive onboarding prompts (OAuth, theme selection)
+ * - Provides structured JSON output for clean parsing
+ * - Maintains conversation context via --continue flag
  *
- * This approach:
- * - Avoids interactive onboarding prompts
- * - Maintains conversation context via --continue
- * - Allows reliable output capture
- * - Works in automated/headless environments
+ * The tmux pane shows the raw commands but we parse the JSON and emit
+ * only the meaningful assistant responses.
  */
 export class ClaudeInstance extends EventEmitter {
     private paneInfo?: PaneInfo;
     private poller?: PanePoller;
-    private outputBuffer = '';
-    private isProcessing = false;
+    private rawBuffer = '';
     private sessionId?: string;
+    private isProcessing = false;
 
     constructor(private options: ClaudeInstanceOptions) {
         super();
@@ -57,16 +65,15 @@ export class ClaudeInstance extends EventEmitter {
     async start(): Promise<void> {
         const { id, role, db, tmux, worktreePath, resumeId } = this.options;
 
-        // Create tmux window with a shell (not Claude directly)
+        // Create tmux window with a shell
         const windowName = `${role}-${id.slice(0, 8)}`;
         console.log(`[Claude ${id}] Creating tmux window: ${windowName}`);
         this.paneInfo = await tmux.createWindow(windowName);
         console.log(`[Claude ${id}] Created pane: ${this.paneInfo.paneId}, window: ${this.paneInfo.windowId}`);
 
         // Change to worktree directory
-        const cdCmd = `cd ${worktreePath}`;
-        console.log(`[Claude ${id}] Changing to worktree: ${cdCmd}`);
-        await tmux.sendCommand(this.paneInfo.paneId, cdCmd);
+        await tmux.sendCommand(this.paneInfo.paneId, `cd ${worktreePath}`);
+        console.log(`[Claude ${id}] Changed to worktree: ${worktreePath}`);
 
         // Update db
         db.createClaudeInstance({
@@ -84,7 +91,7 @@ export class ClaudeInstance extends EventEmitter {
         // Start output capture
         this.startCapture();
 
-        console.log(`[Claude ${id}] Ready for messages (print mode)`);
+        console.log(`[Claude ${id}] Ready for messages (streaming JSON mode)`);
     }
 
     private startCapture(): void {
@@ -93,20 +100,133 @@ export class ClaudeInstance extends EventEmitter {
         this.poller = new PanePoller(this.options.tmux, this.paneInfo.paneId);
 
         this.poller.on('data', (data: string) => {
-            this.outputBuffer += data;
-            this.emit('output', data);
-
-            // Check for patterns we care about
-            this.checkForPatterns(data);
+            this.rawBuffer += data;
+            this.parseAndEmitOutput();
         });
 
         this.poller.start();
     }
 
+    private processedPositions = new Set<number>();
+
+    /**
+     * Parse JSON objects from raw output and emit clean messages.
+     * Uses brace balancing to find complete JSON objects.
+     */
+    private parseAndEmitOutput(): void {
+        const buffer = this.rawBuffer;
+
+        // Find JSON objects by looking for balanced braces
+        let i = 0;
+        while (i < buffer.length) {
+            // Look for start of JSON object
+            const start = buffer.indexOf('{', i);
+            if (start === -1) break;
+
+            // Skip if we've processed this position
+            if (this.processedPositions.has(start)) {
+                i = start + 1;
+                continue;
+            }
+
+            // Find matching closing brace using balance counting
+            let depth = 0;
+            let end = -1;
+            let inString = false;
+            let escape = false;
+
+            for (let j = start; j < buffer.length; j++) {
+                const char = buffer[j];
+
+                if (escape) {
+                    escape = false;
+                    continue;
+                }
+
+                if (char === '\\' && inString) {
+                    escape = true;
+                    continue;
+                }
+
+                if (char === '"' && !escape) {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString) {
+                    if (char === '{') depth++;
+                    if (char === '}') {
+                        depth--;
+                        if (depth === 0) {
+                            end = j + 1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (end === -1) {
+                // Incomplete JSON, wait for more data
+                break;
+            }
+
+            const jsonStr = buffer.substring(start, end);
+            this.processedPositions.add(start);
+
+            try {
+                const msg: ClaudeStreamMessage = JSON.parse(jsonStr);
+
+                // Extract session ID
+                if (msg.session_id && !this.sessionId) {
+                    this.sessionId = msg.session_id;
+                    console.log(`[Claude ${this.id}] Got session ID: ${this.sessionId}`);
+                }
+
+                // Emit assistant messages
+                if (msg.type === 'assistant' && msg.message?.content) {
+                    for (const block of msg.message.content) {
+                        if (block.type === 'text' && block.text) {
+                            console.log(`[Claude ${this.id}] Emitting text (${block.text.length} chars)`);
+                            this.emit('output', block.text);
+                            this.checkForPatterns(block.text);
+                        }
+                    }
+                }
+
+                // Emit final result
+                if (msg.type === 'result') {
+                    console.log(`[Claude ${this.id}] Got result, processing complete`);
+                    this.isProcessing = false;
+                    this.emit('message_complete');
+
+                    // Emit the final result text
+                    if (msg.result) {
+                        this.emit('output', msg.result);
+                    }
+                }
+            } catch (e) {
+                // Invalid JSON, skip
+                console.log(`[Claude ${this.id}] Failed to parse JSON at position ${start}`);
+            }
+
+            i = end;
+        }
+
+        // Clean up old positions periodically
+        if (this.processedPositions.size > 100) {
+            const minToKeep = Math.max(0, buffer.length - 10000);
+            for (const pos of this.processedPositions) {
+                if (pos < minToKeep) {
+                    this.processedPositions.delete(pos);
+                }
+            }
+        }
+    }
+
     private checkForPatterns(data: string): void {
-        // Check for user question prompt (this would depend on how we implement the tool)
+        // Check for user question prompt
         if (data.includes('[QUESTION_FOR_USER]')) {
-            const match = this.outputBuffer.match(/\[QUESTION_FOR_USER\](.*?)\[\/QUESTION_FOR_USER\]/s);
+            const match = data.match(/\[QUESTION_FOR_USER\](.*?)\[\/QUESTION_FOR_USER\]/s);
             if (match) {
                 this.emit('question', match[1].trim());
             }
@@ -117,23 +237,16 @@ export class ClaudeInstance extends EventEmitter {
             this.emit('task_complete');
         }
 
-        // Check for resume ID in output
+        // Check for resume ID
         const resumeMatch = data.match(/Resume ID: ([a-zA-Z0-9_-]+)/);
         if (resumeMatch) {
             this.sessionId = resumeMatch[1];
             this.emit('resume_id', resumeMatch[1]);
         }
-
-        // Check for session ID in Claude's output (format varies)
-        const sessionMatch = data.match(/session[:\s]+([a-f0-9-]{36})/i);
-        if (sessionMatch && !this.sessionId) {
-            this.sessionId = sessionMatch[1];
-        }
     }
 
     /**
-     * Send a message to Claude using print mode.
-     * Uses --continue to maintain conversation context.
+     * Send a message to Claude using print mode with streaming JSON.
      */
     async sendMessage(message: string): Promise<void> {
         if (!this.paneInfo) {
@@ -141,40 +254,32 @@ export class ClaudeInstance extends EventEmitter {
         }
 
         if (this.isProcessing) {
-            console.log(`[Claude ${this.id}] Already processing, queueing message`);
-            // Could implement a queue here if needed
+            console.log(`[Claude ${this.id}] Already processing, waiting...`);
             return;
         }
 
         this.isProcessing = true;
+        this.rawBuffer = '';
 
-        // Escape the message for shell - use base64 to handle any special characters
-        const base64Message = Buffer.from(message).toString('base64');
+        // Escape message for shell using heredoc to handle special chars
+        const cmd = this.buildClaudeCommand(message);
+        console.log(`[Claude ${this.id}] Sending message (${message.length} chars)`);
 
-        // Build the claude command
-        // Use -p for print mode, --continue to maintain context, --dangerously-skip-permissions
-        let cmd = `echo "${base64Message}" | base64 -d | claude -p --dangerously-skip-permissions`;
+        await this.options.tmux.sendCommand(this.paneInfo.paneId, cmd);
+    }
 
-        // Use --continue to maintain conversation in this directory
-        // Or --resume if we have a session ID
+    private buildClaudeCommand(message: string): string {
+        // Use heredoc for safe message passing
+        const escapedMessage = message.replace(/'/g, "'\\''");
+        let cmd = `echo '${escapedMessage}' | claude -p --dangerously-skip-permissions --output-format=stream-json --verbose`;
+
         if (this.sessionId) {
             cmd += ` --resume ${this.sessionId}`;
         } else {
             cmd += ` --continue`;
         }
 
-        console.log(`[Claude ${this.id}] Sending message (${message.length} chars)`);
-
-        // Clear output buffer before new message
-        this.outputBuffer = '';
-
-        await this.options.tmux.sendCommand(this.paneInfo.paneId, cmd);
-
-        // Note: isProcessing will be cleared when we detect the command completes
-        // For now, just set a reasonable timeout
-        setTimeout(() => {
-            this.isProcessing = false;
-        }, 5000);
+        return cmd;
     }
 
     async sendKeys(keys: string): Promise<void> {
@@ -190,10 +295,9 @@ export class ClaudeInstance extends EventEmitter {
             return null;
         }
 
-        // Send Ctrl+C to interrupt any running claude command
         await this.options.tmux.sendKeys(this.paneInfo.paneId, 'C-c');
+        this.isProcessing = false;
 
-        // Return current session ID if we have one
         return this.sessionId || null;
     }
 

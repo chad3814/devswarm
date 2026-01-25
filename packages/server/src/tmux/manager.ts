@@ -50,7 +50,8 @@ export class TmuxManager {
     }
 
     async capturePane(paneId: string, lines = 500): Promise<string> {
-        return this.run(`tmux capture-pane -t '${paneId}' -p -S -${lines}`);
+        // Use -J to join wrapped lines (important for JSON output)
+        return this.run(`tmux capture-pane -t '${paneId}' -p -J -S -${lines}`);
     }
 
     async killWindow(windowId: string): Promise<void> {
