@@ -16,7 +16,7 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
             setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === 'claude') {
-                    return [...prev.slice(0, -1), { ...last, content: last.content + data }];
+                    return [...prev.slice(0, -1), { ...last, content: last.content + '\n\n' + data }];
                 }
                 return [...prev, { role: 'claude', content: data }];
             });

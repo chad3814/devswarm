@@ -3,7 +3,6 @@ FROM node:22-bookworm
 # System dependencies
 RUN apt-get update && apt-get install -y \
     git \
-    tmux \
     curl \
     jq \
     && rm -rf /var/lib/apt/lists/*
@@ -54,6 +53,9 @@ COPY --chown=orchestr8:orchestr8 . .
 
 # Build the app
 RUN npm run build
+
+# Make o8 CLI available globally
+RUN ln -sf /home/orchestr8/packages/server/dist/cli/o8.js /home/orchestr8/.local/bin/o8
 
 # Exposed port range and git daemon
 EXPOSE 3814-3850

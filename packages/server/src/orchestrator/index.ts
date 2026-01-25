@@ -19,6 +19,12 @@ export class Orchestrator {
     ) {}
 
     async start(): Promise<void> {
+        // Idempotent - don't start if already running
+        if (this.running) {
+            console.log('Orchestrator already running, skipping start');
+            return;
+        }
+
         this.running = true;
 
         // Sync GitHub issues to roadmap

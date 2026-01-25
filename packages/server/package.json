@@ -4,6 +4,9 @@
     "type": "module",
     "description": "Server for Orchestr8 agentic coding orchestrator",
     "main": "dist/index.js",
+    "bin": {
+        "o8": "./dist/cli/o8.js"
+    },
     "scripts": {
         "build": "tsc",
         "dev": "tsc --watch"
@@ -14,7 +17,8 @@
         "@fastify/cors": "^10.0.0",
         "@fastify/static": "^8.0.0",
         "better-sqlite3": "^11.0.0",
-        "nanoid": "^5.0.0"
+        "nanoid": "^5.0.0",
+        "commander": "^12.0.0"
     },
     "devDependencies": {
         "@types/better-sqlite3": "^7.6.0",

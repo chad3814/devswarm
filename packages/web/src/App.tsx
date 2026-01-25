@@ -18,6 +18,13 @@ export function App() {
         api.getAuthStatus().then(setAuthStatus).catch(console.error);
     }, [setAuthStatus]);
 
+    // When auth is ready, trigger the orchestrator initialization
+    useEffect(() => {
+        if (authStatus?.ready) {
+            api.completeAuth().catch(console.error);
+        }
+    }, [authStatus?.ready]);
+
     if (!authStatus) {
         return (
             <div className="flex items-center justify-center h-screen bg-gray-900 text-gray-100">

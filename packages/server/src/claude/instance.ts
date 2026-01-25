@@ -72,6 +72,7 @@ export class ClaudeInstance extends EventEmitter {
     async sendMessage(message: string): Promise<void> {
         const args = [
             '-p',
+            '--verbose',
             '--output-format=stream-json',
             '--dangerously-skip-permissions',
         ];

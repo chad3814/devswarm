@@ -86,46 +86,27 @@ async function promptGhLogin(): Promise<string | null> {
     });
 }
 
-async function setupClaudeToken(): Promise<string | null> {
+async function promptForClaudeKey(): Promise<string | null> {
     console.log('\nClaude authentication required.');
-    console.log('Running: claude setup-token\n');
+    console.log('Get an API key from: https://console.anthropic.com/settings/keys\n');
 
-    return new Promise((resolve) => {
-        let output = '';
-        const proc = spawn('claude', ['setup-token'], { stdio: ['inherit', 'pipe', 'inherit'] });
-
-        proc.stdout?.on('data', (data: Buffer) => {
-            const text = data.toString();
-            process.stdout.write(text);
-            output += text;
-        });
-
-        proc.on('close', (code) => {
-            if (code === 0) {
-                // Parse the token from output
-                const match = output.match(/sk-ant-oat01-[A-Za-z0-9_-]+/);
-                if (match) {
-                    resolve(match[0]);
-                } else {
-                    resolve(null);
-                }
-            } else {
-                resolve(null);
-            }
-        });
-    });
-}
-
-async function promptForApiKey(): Promise<string | null> {
     const rl = readline.createInterface({
         input: process.stdin,
         output: process.stdout,
     });
 
     return new Promise((resolve) => {
-        rl.question('Enter your Anthropic API key (or press Enter to use OAuth): ', (answer) => {
+        rl.question('Enter your Anthropic API key: ', (answer) => {
             rl.close();
-            resolve(answer.trim() || null);
+            const key = answer.trim();
+            if (key && key.startsWith('sk-ant-')) {
+                resolve(key);
+            } else if (key) {
+                console.log('Warning: Key does not look like an Anthropic API key (should start with sk-ant-)');
+                resolve(key);
+            } else {
+                resolve(null);
+            }
         });
     });
 }
@@ -162,40 +143,15 @@ async function setupAuth(): Promise<Credentials> {
     // Claude
     console.log('\nChecking Claude authentication...');
     if (creds.claudeToken) {
-        console.log('✓ Claude token found in config');
+        console.log('✓ Claude API key found in config');
     } else {
-        console.log('Choose Claude authentication method:');
-        console.log('1. OAuth (opens browser, creates long-lived token)');
-        console.log('2. API key (enter manually)');
-
-        const rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout,
-        });
-
-        const choice = await new Promise<string>((resolve) => {
-            rl.question('Enter choice [1]: ', (answer) => {
-                rl.close();
-                resolve(answer.trim() || '1');
-            });
-        });
-
-        if (choice === '2') {
-            const apiKey = await promptForApiKey();
-            if (apiKey) {
-                creds.claudeToken = apiKey;
-                updated = true;
-                console.log('✓ API key saved');
-            }
+        const apiKey = await promptForClaudeKey();
+        if (apiKey) {
+            creds.claudeToken = apiKey;
+            updated = true;
+            console.log('✓ API key saved');
         } else {
-            const token = await setupClaudeToken();
-            if (token) {
-                creds.claudeToken = token;
-                updated = true;
-                console.log('✓ Claude OAuth token saved');
-            } else {
-                console.log('✗ Claude authentication failed');
-            }
+            console.log('✗ Claude authentication failed');
         }
     }
 
@@ -312,12 +268,8 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
         `GH_TOKEN=${creds.ghToken}`,
     ];
 
-    // Claude token - could be OAuth token or API key
-    if (creds.claudeToken?.startsWith('sk-ant-oat')) {
-        env.push(`CLAUDE_CODE_OAUTH_TOKEN=${creds.claudeToken}`);
-    } else {
-        env.push(`ANTHROPIC_API_KEY=${creds.claudeToken}`);
-    }
+    // Claude API key
+    env.push(`ANTHROPIC_API_KEY=${creds.claudeToken}`);
 
     console.log('Starting container with stored credentials...');
 
@@ -517,8 +469,7 @@ async function showAuthStatus(): Promise<void> {
     }
 
     if (creds.claudeToken) {
-        const tokenType = creds.claudeToken.startsWith('sk-ant-oat') ? 'OAuth' : 'API key';
-        console.log(`Claude:  ✓ ${tokenType} stored (${creds.claudeToken.substring(0, 15)}...)`);
+        console.log(`Claude:  ✓ API key stored (${creds.claudeToken.substring(0, 12)}...)`);
     } else {
         console.log('Claude:  ✗ Not authenticated');
     }

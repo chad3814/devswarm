@@ -115,6 +115,91 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         };
     });
 
+    app.post('/api/specs', async (request: FastifyRequest<{ Body: { roadmap_item_id: string; content: string } }>) => {
+        const { roadmap_item_id, content } = request.body;
+
+        const spec = app.db.createSpec({
+            roadmap_item_id,
+            content,
+            status: 'draft',
+            worktree_name: null,
+            branch_name: null,
+        });
+
+        // Update roadmap item to link to spec
+        app.db.updateRoadmapItem(roadmap_item_id, { spec_id: spec.id });
+
+        app.wsHub.broadcastSpecUpdate(spec);
+
+        return spec;
+    });
+
+    app.patch('/api/specs/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ content: string; status: string }> }>) => {
+        const { id } = request.params;
+        const updates = request.body;
+
+        app.db.updateSpec(id, updates);
+        const spec = app.db.getSpec(id);
+
+        if (spec) {
+            app.wsHub.broadcastSpecUpdate(spec);
+        }
+
+        return spec;
+    });
+
+    // Task group routes
+    app.post('/api/task-groups', async (request: FastifyRequest<{ Body: { spec_id: string; name: string; description?: string; sequence_order?: number } }>) => {
+        const { spec_id, name, description, sequence_order } = request.body;
+
+        const taskGroup = app.db.createTaskGroup({
+            spec_id,
+            name,
+            description: description || null,
+            status: 'pending',
+            sequence_order: sequence_order || 0,
+            worktree_name: null,
+            branch_name: null,
+        });
+
+        return taskGroup;
+    });
+
+    app.patch('/api/task-groups/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ name: string; description: string; status: string }> }>) => {
+        const { id } = request.params;
+        const updates = request.body;
+
+        app.db.updateTaskGroup(id, updates);
+        const taskGroup = app.db.getTaskGroup(id);
+
+        return taskGroup;
+    });
+
+    // Task routes
+    app.post('/api/tasks', async (request: FastifyRequest<{ Body: { task_group_id: string; description: string; sequence_order?: number } }>) => {
+        const { task_group_id, description, sequence_order } = request.body;
+
+        const task = app.db.createTask({
+            task_group_id,
+            description,
+            status: 'pending',
+            commit_sha: null,
+            sequence_order: sequence_order || 0,
+        });
+
+        return task;
+    });
+
+    app.patch('/api/tasks/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ description: string; status: string }> }>) => {
+        const { id } = request.params;
+        const updates = request.body;
+
+        app.db.updateTask(id, updates);
+        const task = app.db.getTask(id);
+
+        return task;
+    });
+
     // Claude instances routes
     app.get('/api/claudes', async () => {
         return app.db.getClaudeInstances({ status: 'running' });
