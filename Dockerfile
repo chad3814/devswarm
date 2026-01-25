@@ -51,4 +51,6 @@ RUN npm run build
 EXPOSE 3814-3850
 EXPOSE 9418
 
+ENV GITHUB_CLIENT_ID=Ov23liSCBgcipF0N4JjU
+
 ENTRYPOINT ["/home/orchestr8/entrypoint.sh"]

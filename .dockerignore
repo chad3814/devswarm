@@ -1,0 +1,26 @@
+# Dependencies - must be installed fresh in container for native modules
+node_modules
+packages/*/node_modules
+
+# Build artifacts - rebuilt in container
+dist
+packages/*/dist
+
+# Git
+.git
+.gitignore
+
+# IDE/Editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Misc
+*.md
+*.log
+.DS_Store
