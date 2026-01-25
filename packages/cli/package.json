@@ -10,6 +10,33 @@
         "build": "tsc",
         "dev": "tsc --watch"
     },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/chad3814/orchestr8.git",
+        "directory": "packages/cli"
+    },
+    "homepage": "https://github.com/chad3814/orchestr8#readme",
+    "bugs": {
+        "url": "https://github.com/chad3814/orchestr8/issues"
+    },
+    "keywords": [
+        "orchestr8",
+        "orchestrator",
+        "claude",
+        "ai",
+        "automation",
+        "cli",
+        "agentic",
+        "coding"
+    ],
+    "license": "MIT",
+    "author": "chad3814",
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "publishConfig": {
+        "access": "public"
+    },
     "dependencies": {
         "dockerode": "^4.0.0",
         "get-port": "^7.1.0",
