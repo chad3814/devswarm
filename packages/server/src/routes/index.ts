@@ -190,10 +190,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
                         await app.orchestrator.sendToMain(message.message);
                         break;
 
-                    case 'send_keys':
-                        await app.orchestrator.sendKeysToInstance(message.instanceId, message.keys);
-                        break;
-
                     case 'shutdown':
                         app.wsHub.broadcastShutdownProgress('stopping_orchestrator');
                         await app.orchestrator.stop();

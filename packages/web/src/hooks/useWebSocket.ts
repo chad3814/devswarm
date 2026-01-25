@@ -15,7 +15,6 @@ type ClientMessage =
     | { type: 'unsubscribe_claude'; instanceId: string }
     | { type: 'answer_question'; questionId: string; response: string }
     | { type: 'send_to_main'; message: string }
-    | { type: 'send_keys'; instanceId: string; keys: string }
     | { type: 'shutdown' };
 
 export function useWebSocket() {
@@ -152,18 +151,10 @@ export function useWebSocket() {
         send({ type: 'shutdown' });
     }, [send]);
 
-    const sendKeys = useCallback(
-        (instanceId: string, keys: string) => {
-            send({ type: 'send_keys', instanceId, keys });
-        },
-        [send]
-    );
-
     return {
         subscribeToClaude,
         answerQuestion,
         sendToMain,
-        sendKeys,
         shutdown,
     };
 }

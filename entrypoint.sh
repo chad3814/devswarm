@@ -35,9 +35,6 @@ ln -sf /data/config/claude.json.backup ~/.claude.json.backup 2>/dev/null || true
 # Verify claude is in PATH
 echo "Claude location: $(which claude || echo 'not found')"
 
-# Start tmux server
-tmux new-session -d -s orchestr8 -n main
-
 # Start git daemon in background (will serve bare.git once cloned)
 if [ -d /data/bare.git ]; then
     git daemon --reuseaddr --base-path=/data --export-all --enable=receive-pack --port=9418 &

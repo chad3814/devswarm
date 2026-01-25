@@ -8,7 +8,6 @@ import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { initDb } from './db/index.js';
 import { registerRoutes } from './routes/index.js';
-import { TmuxManager } from './tmux/manager.js';
 import { GitManager } from './git/index.js';
 import { Orchestrator } from './orchestrator/index.js';
 import { WebSocketHub } from './routes/ws.js';
@@ -29,18 +28,16 @@ async function main(): Promise<void> {
 
     // Initialize core services
     const db = initDb(config.dbPath);
-    const tmux = new TmuxManager('orchestr8');
     const git = new GitManager(config.bareRepoPath, config.worktreesPath);
     const wsHub = new WebSocketHub();
 
     // Dependency injection via decorators
     app.decorate('db', db);
-    app.decorate('tmux', tmux);
     app.decorate('git', git);
     app.decorate('wsHub', wsHub);
 
     // Create orchestrator (but don't start yet)
-    const orchestrator = new Orchestrator(db, tmux, git, wsHub);
+    const orchestrator = new Orchestrator(db, git, wsHub);
     app.decorate('orchestrator', orchestrator);
 
     // Register routes

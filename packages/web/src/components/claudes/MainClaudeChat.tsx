@@ -9,7 +9,7 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
     const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string }[]>([]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const { subscribeToClaude, sendToMain, sendKeys } = useWebSocket();
+    const { subscribeToClaude, sendToMain } = useWebSocket();
 
     useEffect(() => {
         const unsubscribe = subscribeToClaude(instanceId, (data) => {
@@ -33,8 +33,6 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
         e.preventDefault();
 
         if (!input.trim()) {
-            // Send Enter key to interact with Claude's prompts
-            sendKeys(instanceId, 'Enter');
             return;
         }
 

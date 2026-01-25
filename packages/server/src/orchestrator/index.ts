@@ -1,5 +1,4 @@
-import { Db, RoadmapItem, Spec } from '../db/index.js';
-import { TmuxManager } from '../tmux/manager.js';
+import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
 import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, OVERSEER_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
@@ -15,7 +14,6 @@ export class Orchestrator {
 
     constructor(
         private db: Db,
-        private tmux: TmuxManager,
         private git: GitManager,
         private wsHub: WebSocketHub,
     ) {}
@@ -92,7 +90,6 @@ export class Orchestrator {
             id: 'main',
             role: 'main',
             db: this.db,
-            tmux: this.tmux,
             worktreePath: mainWt,
             systemPrompt: MAIN_CLAUDE_PROMPT,
         });
@@ -102,7 +99,7 @@ export class Orchestrator {
 
         // Set up event handlers
         this.mainClaude.on('output', (data) => {
-            console.log(`[Orchestrator] Main claude output event (${data.length} chars)`);
+            console.log(`[Orchestrator] Main claude output (${data.length} chars)`);
             this.wsHub.broadcastClaudeOutput('main', data);
         });
 
@@ -143,7 +140,6 @@ Please review and decide what to work on first.
                 id: record.id,
                 role: record.role as 'main' | 'spec_creator' | 'overseer' | 'worker',
                 db: this.db,
-                tmux: this.tmux,
                 worktreePath: wtPath,
                 resumeId: record.resume_id,
             });
@@ -225,7 +221,6 @@ Please review and decide what to work on first.
             id: nanoid(),
             role: 'overseer',
             db: this.db,
-            tmux: this.tmux,
             worktreePath: wtPath,
             systemPrompt: OVERSEER_PROMPT,
             contextType: 'spec',
@@ -307,13 +302,6 @@ All task groups finished. Please review the changes in worktree ${spec.worktree_
     async sendToMain(message: string): Promise<void> {
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(message);
-        }
-    }
-
-    async sendKeysToInstance(instanceId: string, keys: string): Promise<void> {
-        const instance = this.instances.get(instanceId);
-        if (instance) {
-            await instance.sendKeys(keys);
         }
     }
 
