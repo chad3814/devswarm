@@ -88,6 +88,12 @@ export class GitHubAuth {
     }
 
     async isAuthenticated(): Promise<boolean> {
+        // Check for GH_TOKEN env var first (passed from CLI)
+        if (process.env.GH_TOKEN) {
+            return true;
+        }
+
+        // Fall back to checking hosts.yml file
         try {
             await fs.access(`${config.configPath}/gh/hosts.yml`);
             return true;
@@ -97,6 +103,12 @@ export class GitHubAuth {
     }
 
     async getToken(): Promise<string | null> {
+        // Check for GH_TOKEN env var first (passed from CLI)
+        if (process.env.GH_TOKEN) {
+            return process.env.GH_TOKEN;
+        }
+
+        // Fall back to reading from hosts.yml file
         try {
             const content = await fs.readFile(`${config.configPath}/gh/hosts.yml`, 'utf-8');
             const match = content.match(/oauth_token:\s*(\S+)/);
