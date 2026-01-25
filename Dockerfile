@@ -31,7 +31,10 @@ ENV PATH="/home/orchestr8/.claude/bin:${PATH}"
 
 # App dependencies (copied separately for layer caching)
 COPY --chown=orchestr8:orchestr8 package*.json ./
-RUN npm ci --production
+COPY --chown=orchestr8:orchestr8 packages/cli/package.json ./packages/cli/
+COPY --chown=orchestr8:orchestr8 packages/server/package.json ./packages/server/
+COPY --chown=orchestr8:orchestr8 packages/web/package.json ./packages/web/
+RUN npm i
 
 # App source
 COPY --chown=orchestr8:orchestr8 . .
