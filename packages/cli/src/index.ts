@@ -11,8 +11,13 @@ import { execSync, spawn } from 'child_process';
 import * as readline from 'readline';
 
 const docker = new Docker();
-const IMAGE = 'orchestr8:latest';
+const DEFAULT_TAG = 'dev';
+const IMAGE_REPO = 'ghcr.io/chad3814/orchestr8';
 const PORT_RANGE_START = 3814;
+
+function getImageName(tag: string = DEFAULT_TAG): string {
+    return `${IMAGE_REPO}:${tag}`;
+}
 
 // Config directory: XDG_CONFIG_HOME/orchestr8 or ~/.config/orchestr8
 function getConfigDir(): string {
@@ -26,6 +31,52 @@ function ensureConfigDir(): string {
         mkdirSync(dir, { recursive: true });
     }
     return dir;
+}
+
+async function ensureImage(tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<void> {
+    const image = getImageName(tag);
+
+    // Check if image exists locally
+    if (!forcePull) {
+        try {
+            await docker.getImage(image).inspect();
+            console.log(`Using local image: ${image}`);
+            return;
+        } catch {
+            // Image not found, need to pull
+        }
+    }
+
+    console.log(`Pulling image: ${image}...`);
+
+    try {
+        const stream = await docker.pull(image);
+
+        await new Promise<void>((resolve, reject) => {
+            docker.modem.followProgress(
+                stream,
+                (err: Error | null) => {
+                    if (err) reject(err);
+                    else resolve();
+                },
+                (event: { status?: string; progress?: string; id?: string }) => {
+                    if (event.status) {
+                        const id = event.id ? `[${event.id}] ` : '';
+                        const progress = event.progress || '';
+                        process.stdout.write(`\r${id}${event.status} ${progress}`.padEnd(80));
+                    }
+                }
+            );
+        });
+
+        console.log(`\n✓ Image ready: ${image}`);
+    } catch (error) {
+        console.error(`\n✗ Failed to pull image: ${image}`);
+        if (error instanceof Error) {
+            console.error(`  Error: ${error.message}`);
+        }
+        throw new Error('Image pull failed. Check your network connection and image availability.');
+    }
 }
 
 interface Credentials {
@@ -212,7 +263,7 @@ async function getContainerPort(container: Docker.Container): Promise<number> {
     return parseInt(portLabel, 10);
 }
 
-async function startContainer(info: RepoInfo): Promise<{ port: number; containerId: string }> {
+async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string }> {
     const name = containerName(info);
     const volume = volumeName(info);
 
@@ -233,6 +284,9 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
         console.log(`Resumed container on port ${port}`);
         return { port, containerId: existing.Id };
     }
+
+    // Ensure image is available
+    await ensureImage(tag, forcePull);
 
     // Load credentials
     const creds = loadCredentials();
@@ -274,7 +328,7 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
     console.log('Starting container with stored credentials...');
 
     const container = await docker.createContainer({
-        Image: IMAGE,
+        Image: getImageName(tag),
         name,
         Env: env,
         Labels: {
@@ -434,11 +488,14 @@ async function tailLogs(repoArg: string): Promise<void> {
     });
 }
 
-async function startOrAttach(repoArg: string): Promise<void> {
+async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting orchestr8 for ${info.owner}/${info.repo}...`);
 
-    const { port, containerId } = await startContainer(info);
+    const tag = options.tag || DEFAULT_TAG;
+    const forcePull = options.pull || false;
+
+    const { port, containerId } = await startContainer(info, tag, forcePull);
 
     followLogs(containerId, () => {
         console.log(`\nOpening http://localhost:${port}`);
@@ -489,14 +546,41 @@ async function clearAuth(): Promise<void> {
     }
 }
 
-program
-    .name('orchestr8')
-    .description('Agentic coding orchestrator')
-    .version('0.1.0');
+const VERSION = '0.1.0';
+
+// Custom version display
+const originalVersion = program.version.bind(program);
+program.version(VERSION, '-v, --version', 'Display version information');
+
+// Override the version action to show additional info
+program.commands.forEach((cmd) => {
+    if (cmd.name() === 'version') {
+        cmd.action(() => {
+            console.log(`orchestr8 CLI version: ${VERSION}`);
+            console.log(`Default image: ${getImageName()}`);
+            console.log(`Image repository: ${IMAGE_REPO}`);
+            console.log(`Default tag: ${DEFAULT_TAG}`);
+        });
+    }
+});
+
+// Parse version flag before commander processes it
+if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    const versionIndex = process.argv.findIndex(arg => arg === '--version' || arg === '-v');
+    if (versionIndex === 2 || (versionIndex > 2 && !process.argv[2].startsWith('-'))) {
+        console.log(`orchestr8 CLI version: ${VERSION}`);
+        console.log(`Default image: ${getImageName()}`);
+        console.log(`Image repository: ${IMAGE_REPO}`);
+        console.log(`Default tag: ${DEFAULT_TAG}`);
+        process.exit(0);
+    }
+}
 
 program
     .command('start <repo>')
     .description('Start or attach to an orchestrator for a repository')
+    .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
+    .option('--pull', 'Force pull latest image before starting')
     .action(startOrAttach);
 
 program
@@ -538,9 +622,11 @@ program
 // Default command - if just a repo is provided
 program
     .argument('[repo]', 'Repository to orchestrate (owner/repo or full URL)')
-    .action(async (repo) => {
+    .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
+    .option('--pull', 'Force pull latest image before starting')
+    .action(async (repo, options) => {
         if (repo) {
-            await startOrAttach(repo);
+            await startOrAttach(repo, options);
         } else {
             program.help();
         }
