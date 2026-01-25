@@ -16,15 +16,25 @@ if [ ! -f /data/config/claude/settings.json ]; then
     cp -r ~/.claude/* /data/config/claude/ 2>/dev/null || true
 fi
 
+# Handle gh credentials
+# Priority: 1) Host-mounted credentials, 2) Existing volume credentials
+if [ -d /tmp/host-gh ]; then
+    echo "Using host-mounted GitHub credentials"
+    cp -r /tmp/host-gh/* /data/config/gh/
+fi
+
 # Link config directories so tools find their auth
 mkdir -p ~/.config
 ln -sf /data/config/gh ~/.config/gh 2>/dev/null || true
 rm -rf ~/.claude 2>/dev/null || true
 ln -sf /data/config/claude ~/.claude
 
-# Also persist .claude.json (separate from .claude directory)
-# This file contains OAuth account state that must persist
-if [ -f ~/.claude.json ] && [ ! -f /data/config/claude.json ]; then
+# Handle .claude.json (OAuth account state)
+# Priority: 1) Host-mounted credentials, 2) Existing volume credentials
+if [ -f /tmp/host-claude.json ]; then
+    echo "Using host-mounted Claude credentials"
+    cp /tmp/host-claude.json /data/config/claude.json
+elif [ -f ~/.claude.json ] && [ ! -f /data/config/claude.json ]; then
     echo "Copying existing .claude.json to volume..."
     cp ~/.claude.json /data/config/claude.json
 fi

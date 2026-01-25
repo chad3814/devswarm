@@ -4,6 +4,9 @@ import Docker from 'dockerode';
 import getPort from 'get-port';
 import open from 'open';
 import { program } from 'commander';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 
 const docker = new Docker();
 const IMAGE = 'orchestr8:latest';
@@ -88,6 +91,22 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
         // Volume may already exist
     }
 
+    // Build bind mounts
+    const binds = [`${volume}:/data`];
+
+    // Mount host credentials if available (to temp location, copied by entrypoint)
+    const hostClaudeJson = join(homedir(), '.claude.json');
+    if (existsSync(hostClaudeJson)) {
+        console.log('Found ~/.claude.json, mounting into container');
+        binds.push(`${hostClaudeJson}:/tmp/host-claude.json:ro`);
+    }
+
+    const hostGhConfig = join(homedir(), '.config', 'gh');
+    if (existsSync(hostGhConfig)) {
+        console.log('Found ~/.config/gh, mounting into container');
+        binds.push(`${hostGhConfig}:/tmp/host-gh:ro`);
+    }
+
     const container = await docker.createContainer({
         Image: IMAGE,
         name,
@@ -102,7 +121,7 @@ async function startContainer(info: RepoInfo): Promise<{ port: number; container
             'orchestr8.repo': `${info.owner}/${info.repo}`,
         },
         HostConfig: {
-            Binds: [`${volume}:/data`],
+            Binds: binds,
             PortBindings: {
                 [`${port}/tcp`]: [{ HostPort: String(port) }],
                 '9418/tcp': [{ HostPort: '9418' }],
