@@ -206,9 +206,34 @@ Please review and decide what to work on first.
 
         for (const item of pending) {
             if (!this.db.hasUnresolvedDependencies('roadmap_item', item.id)) {
-                // This item is ready for spec creation
-                // For now, just log - in full implementation, would spawn spec_creator
-                console.log(`Roadmap item ready for spec: ${item.title}`);
+                // This item is ready for spec creation - notify main Claude
+                console.log(`[Orchestrator] Roadmap item ready for spec: ${item.title}`);
+
+                if (this.mainClaude) {
+                    // Update roadmap item to in_progress
+                    this.db.updateRoadmapItem(item.id, { status: 'in_progress' });
+                    console.log(`[Orchestrator] Roadmap item ${item.id} status: pending → in_progress`);
+
+                    // Notify main Claude to create a spec
+                    await this.mainClaude.sendMessage(`
+Roadmap item ready for spec creation: ${item.title}
+
+ID: ${item.id}
+Description: ${item.description}
+
+Please create a detailed spec for this roadmap item using:
+\`\`\`bash
+o8 spec create -r ${item.id} -c @spec.md
+\`\`\`
+
+After creating the spec:
+1. The spec will be automatically linked to this roadmap item
+2. Use \`o8 spec approve <spec-id>\` to approve the spec for implementation
+3. The system will automatically start implementation once approved
+                    `);
+                } else {
+                    console.warn(`[Orchestrator] Main Claude not available to notify about roadmap item ${item.id}`);
+                }
             }
         }
     }
