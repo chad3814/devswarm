@@ -139,7 +139,8 @@ async function promptGhLogin(): Promise<string | null> {
 
 async function promptForClaudeKey(): Promise<string | null> {
     console.log('\nClaude authentication required.');
-    console.log('Get an API key from: https://console.anthropic.com/settings/keys\n');
+    console.log('For Claude Code subscriptions: Run "claude setup-token" and paste the token');
+    console.log('For API access: Get a key from https://console.anthropic.com/settings/keys\n');
 
     const rl = readline.createInterface({
         input: process.stdin,
@@ -147,13 +148,14 @@ async function promptForClaudeKey(): Promise<string | null> {
     });
 
     return new Promise((resolve) => {
-        rl.question('Enter your Anthropic API key: ', (answer) => {
+        rl.question('Enter your Claude token or API key: ', (answer) => {
             rl.close();
             const key = answer.trim();
             if (key && key.startsWith('sk-ant-')) {
+                // API key format
                 resolve(key);
-            } else if (key) {
-                console.log('Warning: Key does not look like an Anthropic API key (should start with sk-ant-)');
+            } else if (key && key.length > 0) {
+                // OAuth token or other format - accept it
                 resolve(key);
             } else {
                 resolve(null);
@@ -322,8 +324,8 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         `GH_TOKEN=${creds.ghToken}`,
     ];
 
-    // Claude API key
-    env.push(`ANTHROPIC_API_KEY=${creds.claudeToken}`);
+    // Claude authentication token
+    env.push(`CLAUDE_CODE_OAUTH_TOKEN=${creds.claudeToken}`);
 
     console.log('Starting container with stored credentials...');
 
