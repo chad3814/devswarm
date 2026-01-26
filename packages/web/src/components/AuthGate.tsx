@@ -53,7 +53,7 @@ export function AuthGate({ authStatus }: AuthGateProps) {
 
     return (
         <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-gray-100 p-8">
-            <h1 className="text-3xl font-bold mb-8">Orchestr8 Setup</h1>
+            <h1 className="text-3xl font-bold mb-8">/dev/swarm Setup</h1>
 
             <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
                 <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
