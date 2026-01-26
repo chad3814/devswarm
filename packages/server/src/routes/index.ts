@@ -69,6 +69,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         const item = app.db.createRoadmapItem({
             github_issue_id: null,
             github_issue_url: null,
+            github_issue_closed: 0,
             title,
             description,
             status: 'pending',
@@ -124,6 +125,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             status: 'draft',
             worktree_name: null,
             branch_name: null,
+            error_message: null,
         });
 
         // Update roadmap item to link to spec
