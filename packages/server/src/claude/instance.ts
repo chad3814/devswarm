@@ -13,6 +13,8 @@ export interface ClaudeInstanceOptions {
     resumeId?: string;
     contextType?: string;
     contextId?: string;
+    completionPollingInterval?: number; // milliseconds, default 30000
+    maxRuntime?: number; // milliseconds, default 2 hours
 }
 
 interface ClaudeStreamMessage {
@@ -37,6 +39,8 @@ export class ClaudeInstance extends EventEmitter {
     private process?: ChildProcess;
     private sessionId?: string;
     private buffer = '';
+    private completionPollingTimer?: NodeJS.Timeout;
+    private maxRuntimeTimer?: NodeJS.Timeout;
 
     constructor(private options: ClaudeInstanceOptions) {
         super();
@@ -67,6 +71,14 @@ export class ClaudeInstance extends EventEmitter {
         });
 
         console.log(`[Claude ${id}] Ready (${role}) in ${worktreePath}`);
+
+        // Start completion polling for overseer role
+        if (role === 'overseer' && this.options.contextId) {
+            this.startCompletionPolling();
+        }
+
+        // Start max runtime timer
+        this.startMaxRuntimeTimer();
     }
 
     async sendMessage(message: string): Promise<void> {
@@ -226,6 +238,8 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     async stop(): Promise<void> {
+        this.clearTimers();
+
         if (this.process && !this.process.killed) {
             this.process.kill();
         }
@@ -238,5 +252,133 @@ export class ClaudeInstance extends EventEmitter {
 
     getRecord(): ClaudeInstanceRecord | undefined {
         return this.options.db.getClaudeInstance(this.id);
+    }
+
+    private startCompletionPolling(): void {
+        const interval = this.options.completionPollingInterval || 30000; // Default 30 seconds
+
+        this.completionPollingTimer = setInterval(() => {
+            this.checkOwnCompletion();
+        }, interval);
+
+        console.log(`[Claude ${this.id}] Started completion polling (interval: ${interval}ms)`);
+    }
+
+    private checkOwnCompletion(): void {
+        if (this.role !== 'overseer' || !this.options.contextId) {
+            return;
+        }
+
+        const specId = this.options.contextId;
+        const taskGroups = this.options.db.getTaskGroupsForSpec(specId);
+
+        // If no task groups exist yet, not complete
+        if (taskGroups.length === 0) {
+            return;
+        }
+
+        // Check if all task groups are done
+        const allDone = taskGroups.every((tg) => tg.status === 'done');
+
+        if (allDone) {
+            console.log(`[Claude ${this.id}] All task groups complete for spec ${specId}, exiting...`);
+            this.exitGracefully();
+        }
+    }
+
+    private async exitGracefully(): Promise<void> {
+        console.log(`[Claude ${this.id}] Exiting gracefully`);
+
+        // Clear timers first
+        this.clearTimers();
+
+        // Send a final message to let Claude know it's done
+        try {
+            await this.sendMessage('All task groups are complete. Your work on this spec is done. The system will now exit this instance.');
+        } catch (e) {
+            console.error(`[Claude ${this.id}] Error sending final message:`, e);
+        }
+
+        // Wait a moment for the message to complete
+        setTimeout(() => {
+            // Kill the process if it's still running
+            if (this.process && !this.process.killed) {
+                console.log(`[Claude ${this.id}] Killing process`);
+                this.process.kill('SIGTERM');
+
+                // Force kill after 10 seconds if still running
+                setTimeout(() => {
+                    if (this.process && !this.process.killed) {
+                        console.log(`[Claude ${this.id}] Force killing process`);
+                        this.process.kill('SIGKILL');
+                    }
+                }, 10000);
+            }
+
+            // Update status in db
+            this.options.db.updateClaudeInstance(this.id, {
+                status: 'completed',
+                resume_id: this.sessionId || null,
+            });
+
+            // Emit idle event to trigger spec completion check
+            this.emit('idle');
+        }, 2000);
+    }
+
+    private startMaxRuntimeTimer(): void {
+        const maxRuntime = this.options.maxRuntime || 2 * 60 * 60 * 1000; // Default 2 hours
+
+        this.maxRuntimeTimer = setTimeout(() => {
+            console.error(`[Claude ${this.id}] Maximum runtime exceeded (${maxRuntime}ms), forcing exit`);
+            this.handleTimeout();
+        }, maxRuntime);
+
+        console.log(`[Claude ${this.id}] Started max runtime timer (${maxRuntime}ms)`);
+    }
+
+    private handleTimeout(): void {
+        // Clear polling timer
+        if (this.completionPollingTimer) {
+            clearInterval(this.completionPollingTimer);
+            this.completionPollingTimer = undefined;
+        }
+
+        // Kill the process
+        if (this.process && !this.process.killed) {
+            console.log(`[Claude ${this.id}] Killing process due to timeout`);
+            this.process.kill('SIGKILL');
+        }
+
+        // Update status and record error
+        this.options.db.updateClaudeInstance(this.id, {
+            status: 'timeout',
+            resume_id: this.sessionId || null,
+        });
+
+        // If this is an overseer, mark the spec with an error
+        if (this.role === 'overseer' && this.options.contextId) {
+            const spec = this.options.db.getSpec(this.options.contextId);
+            if (spec) {
+                // For now, just log - we'll add error_message field in Task Group 3
+                console.error(`[Claude ${this.id}] Spec ${this.options.contextId} timed out`);
+            }
+        }
+
+        // Emit error event
+        this.emit('error', new Error('Maximum runtime exceeded'));
+        this.emit('idle');
+    }
+
+    private clearTimers(): void {
+        if (this.completionPollingTimer) {
+            clearInterval(this.completionPollingTimer);
+            this.completionPollingTimer = undefined;
+        }
+
+        if (this.maxRuntimeTimer) {
+            clearTimeout(this.maxRuntimeTimer);
+            this.maxRuntimeTimer = undefined;
+        }
     }
 }
