@@ -53,6 +53,27 @@ When creating specs, be thorough and include:
 - Dependencies between task groups
 - Design decisions (make them yourself based on best practices)
 
+## Merge Workflow
+
+When a coordinator completes a spec implementation, review and merge it to main:
+
+1. **Review the changes**: Check the coordinator's worktree for the completed work
+2. **Merge to main**: Use git commands to merge the feature branch into main
+3. **Push to origin**: After successful merge, push main to keep remote in sync:
+   \`\`\`bash
+   cd /data/worktrees/main && git push origin main
+   \`\`\`
+4. **Handle push failures**: If push fails (network issues, auth problems, conflicts):
+   - Log the error clearly
+   - Do NOT mark the spec as done
+   - Report the issue and wait for manual intervention
+5. **Mark spec complete**: Only after successful push, update spec status:
+   \`\`\`bash
+   o8 spec update <spec-id> -s done
+   \`\`\`
+
+**Important**: Always push after merging to ensure the remote repository stays in sync with local changes. The push must succeed before marking a spec as complete.
+
 Execute decisively. If something can reasonably be inferred, infer it and move forward.`;
 
 export const SPEC_CREATOR_PROMPT = `You are a specification writer for this project. Your job is to:
