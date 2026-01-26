@@ -1,6 +1,6 @@
-# DevSwarm
+# /dev/swarm
 
-An agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks.
+An agentic coding orchestrator that uses Claude Code CLI and git worktrees to parallelize software development tasks.
 
 ## Architecture
 
@@ -12,7 +12,7 @@ An agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmu
 │  │ devswarm │ docker  │  Container: devswarm-owner-repo          │  │
 │  │ CLI      │────────▶│                                          │  │
 │  └──────────┘         │  ┌─────────────────────────────────────┐ │  │
-│       │               │  │ tmux session: devswarm              │ │  │
+│       │               │  │ Claude Instances                    │ │  │
 │       │ opens         │  │ ┌─────────┬─────────┬─────────┐     │ │  │
 │       │ browser       │  │ │ main    │ spec-1  │ worker-1│ ... │ │  │
 │       ▼               │  │ │ claude  │ claude  │ claude  │     │ │  │
