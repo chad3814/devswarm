@@ -7,6 +7,7 @@ export interface RoadmapItem {
     id: string;
     github_issue_id: number | null;
     github_issue_url: string | null;
+    github_issue_closed: number;
     title: string;
     description: string;
     status: string;
@@ -89,6 +90,7 @@ CREATE TABLE IF NOT EXISTS roadmap_items (
     id TEXT PRIMARY KEY,
     github_issue_id INTEGER,
     github_issue_url TEXT,
+    github_issue_closed INTEGER NOT NULL DEFAULT 0,
     title TEXT NOT NULL,
     description TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
@@ -204,10 +206,10 @@ export class Db {
     createRoadmapItem(item: Omit<RoadmapItem, 'id' | 'created_at' | 'updated_at'>): RoadmapItem {
         const id = nanoid();
         const stmt = this.db.prepare(`
-            INSERT INTO roadmap_items (id, github_issue_id, github_issue_url, title, description, status, spec_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO roadmap_items (id, github_issue_id, github_issue_url, github_issue_closed, title, description, status, spec_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(id, item.github_issue_id, item.github_issue_url, item.title, item.description, item.status, item.spec_id);
+        stmt.run(id, item.github_issue_id, item.github_issue_url, item.github_issue_closed, item.title, item.description, item.status, item.spec_id);
         return this.getRoadmapItem(id)!;
     }
 
@@ -410,6 +412,21 @@ export class Db {
     getAuthState(key: string): string | undefined {
         const row = this.db.prepare('SELECT value FROM auth_state WHERE key = ?').get(key) as { value: string } | undefined;
         return row?.value;
+    }
+
+    // GitHub Issue Closure
+    markGitHubIssueClosed(roadmapItemId: string): void {
+        this.db.prepare('UPDATE roadmap_items SET github_issue_closed = 1, updated_at = unixepoch() WHERE id = ?').run(roadmapItemId);
+    }
+
+    getCompletedRoadmapItemsWithUnclosedIssues(): RoadmapItem[] {
+        return this.db.prepare(`
+            SELECT * FROM roadmap_items
+            WHERE status = 'done'
+            AND github_issue_id IS NOT NULL
+            AND github_issue_closed = 0
+            ORDER BY updated_at
+        `).all() as RoadmapItem[];
     }
 }
 
