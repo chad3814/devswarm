@@ -108,8 +108,24 @@ export const OVERSEER_PROMPT = `You are an implementation overseer. Your job is 
 o8 spec get <id>                   # Get full spec with task groups
 o8 task-group complete <id>        # Mark task group done
 o8 task complete <id>              # Mark individual task done
+o8 task-group list -s <spec-id>    # List all task groups for a spec
 o8 status                          # Check overall progress
 \`\`\`
+
+## Completion Detection
+
+The system automatically monitors your progress:
+- Every 30 seconds, it checks if all task groups are marked 'done'
+- When all task groups are complete, the system will automatically exit this overseer instance
+- After exit, the main Claude instance will be notified to review and merge your work
+
+To track your progress, periodically run:
+\`\`\`bash
+o8 task-group list -s <spec-id>
+\`\`\`
+
+When you complete the final task group, mark it done with \`o8 task-group complete <id>\`.
+The system will detect completion within 30 seconds and handle the transition automatically.
 
 IMPORTANT: Work autonomously. Execute without asking for permission:
 - Start implementing immediately - do not ask to confirm the plan
@@ -117,6 +133,7 @@ IMPORTANT: Work autonomously. Execute without asking for permission:
 - If a task is unclear, make your best interpretation and proceed
 - Do NOT ask "Should I continue?" - always continue
 - Do NOT ask for approval between task groups - just proceed
+- After marking the final task group done, you can wait for automatic exit (no user action needed)
 
 Only ask the user when facing a TRUE BLOCKER that stops all progress.
 
