@@ -65,9 +65,20 @@ packages/server/src/
 
 ### Data Flow
 
-1. **Initialization**: CLI starts container → Auth via GitHub Device Flow → Clone bare repo → Start git daemon → Create main worktree
+1. **Initialization**: CLI starts container → Auth via GitHub Device Flow + Claude token → Clone bare repo → Start git daemon → Create main worktree
 2. **Claude Lifecycle**: Each role gets a tmux pane → Output captured via polling → Events emitted (output, question, task_complete)
 3. **Work Pipeline**: Roadmap items → Specs → Task groups → Workers execute in parallel → Merge back to main
+
+### Authentication
+
+DevSwarm requires two types of authentication:
+
+1. **GitHub**: Uses device flow OAuth for repository access. Token stored in `/data/config/gh/hosts.yml`
+2. **Claude**: Supports both authentication methods:
+   - **Claude Code subscription**: Token from `claude setup-token` (recommended for subscriptions)
+   - **Anthropic API key**: API key from https://console.anthropic.com/settings/keys
+
+The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable, which is automatically used by the Claude Code CLI inside the container.
 
 ### Claude Roles
 
