@@ -104,13 +104,16 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.exists == 'false'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd packages/cli
           npm publish --tag ${{ steps.version.outputs.tag }} --provenance --access public
         # Authentication via NPM Trusted Publishing:
         # - Uses GitHub Actions OIDC (id-token: write permission above)
-        # - setup-node with registry-url configures npm client for OIDC automatically
-        # - No NODE_AUTH_TOKEN needed - OIDC authenticates directly with NPM
+        # - setup-node with registry-url configures npm client for OIDC
+        # - NODE_AUTH_TOKEN must be set (npm CLI requires it) but value is ignored
+        # - OIDC authentication happens automatically, GITHUB_TOKEN is just a placeholder
         # - --provenance flag adds cryptographic attestation to the package
 
       - name: Commit version bump (release branch only)
