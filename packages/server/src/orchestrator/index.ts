@@ -325,6 +325,24 @@ ${spec.content}
         }
     }
 
+    private async checkRoadmapProgression(): Promise<void> {
+        // Check for specs that are done and update their roadmap items
+        const doneSpecs = this.db.getSpecs({ status: 'done' });
+
+        for (const spec of doneSpecs) {
+            if (spec.roadmap_item_id) {
+                const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+                if (roadmapItem && roadmapItem.status !== 'done') {
+                    console.log(`[Orchestrator] Marking roadmap item ${roadmapItem.title} as done (spec completed)`);
+                    this.db.updateRoadmapItem(spec.roadmap_item_id, { status: 'done' });
+
+                    // Clear from notified set
+                    this.notifiedRoadmapItems.delete(spec.roadmap_item_id);
+                }
+            }
+        }
+    }
+
     private async checkSpecCompletion(specId: string): Promise<void> {
         const spec = this.db.getSpec(specId);
         if (!spec || spec.status !== 'in_progress') {
