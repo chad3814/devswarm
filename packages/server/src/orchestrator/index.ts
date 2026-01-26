@@ -13,6 +13,7 @@ export class Orchestrator {
     private mainClaude?: ClaudeInstance;
     private instances = new Map<string, ClaudeInstance>();
     private notifiedRoadmapItems = new Set<string>();
+    private pushedSpecs = new Set<string>();
 
     constructor(
         private db: Db,
@@ -325,11 +326,36 @@ ${spec.content}
         }
     }
 
+    private async handleSpecMergeComplete(specId: string): Promise<void> {
+        // After spec is marked done, push main to origin
+        try {
+            console.log(`[Orchestrator] Spec ${specId} marked done, checking for unpushed commits on main`);
+
+            const hasUnpushed = await this.git.hasUnpushedCommits('main');
+            if (hasUnpushed) {
+                console.log(`[Orchestrator] Pushing main to origin after spec ${specId} merge`);
+                await this.git.push('main');
+                console.log(`[Orchestrator] Successfully pushed main to origin after spec ${specId} merge`);
+            } else {
+                console.log(`[Orchestrator] No unpushed commits on main, skipping push`);
+            }
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to push main to origin after spec ${specId}:`, error);
+            // Don't throw - log error but don't block workflow
+        }
+    }
+
     private async checkRoadmapProgression(): Promise<void> {
         // Check for specs that are done and update their roadmap items
         const doneSpecs = this.db.getSpecs({ status: 'done' });
 
         for (const spec of doneSpecs) {
+            // Push to origin if not already pushed
+            if (!this.pushedSpecs.has(spec.id)) {
+                await this.handleSpecMergeComplete(spec.id);
+                this.pushedSpecs.add(spec.id);
+            }
+
             if (spec.roadmap_item_id) {
                 const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
                 if (roadmapItem && roadmapItem.status !== 'done') {
