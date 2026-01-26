@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS auth_state (
 CREATE INDEX IF NOT EXISTS idx_roadmap_status ON roadmap_items(status);
 CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
 CREATE INDEX IF NOT EXISTS idx_task_groups_spec ON task_groups(spec_id);
+CREATE INDEX IF NOT EXISTS idx_task_groups_spec_status ON task_groups(spec_id, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_group ON tasks(task_group_id);
 CREATE INDEX IF NOT EXISTS idx_deps_blocker ON dependencies(blocker_type, blocker_id);
 CREATE INDEX IF NOT EXISTS idx_deps_blocked ON dependencies(blocked_type, blocked_id);

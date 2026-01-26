@@ -225,6 +225,8 @@ Please review and decide what to work on first.
     }
 
     private async startSpecImplementation(spec: Spec): Promise<void> {
+        console.log(`[Orchestrator] Starting implementation for spec ${spec.id}`);
+
         const worktreeName = `spec-${spec.id}`;
         const wtPath = await this.git.createWorktree(worktreeName, 'main');
 
@@ -246,6 +248,8 @@ Please review and decide what to work on first.
             status: 'in_progress',
             worktree_name: worktreeName,
         });
+
+        console.log(`[Orchestrator] Spec ${spec.id} status: approved → in_progress`);
 
         // Set up handlers
         overseer.on('output', (data) => {
@@ -288,24 +292,33 @@ ${spec.content}
 
     private async checkSpecCompletion(specId: string): Promise<void> {
         const spec = this.db.getSpec(specId);
-        if (!spec || spec.status !== 'in_progress') return;
+        if (!spec || spec.status !== 'in_progress') {
+            console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} not eligible (status: ${spec?.status || 'not found'})`);
+            return;
+        }
 
         const taskGroups = this.db.getTaskGroupsForSpec(specId);
+        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
         // Check if all task groups are done (if any exist)
         const allTaskGroupsDone = taskGroups.length === 0 || taskGroups.every((tg) => tg.status === 'done');
 
-        // Check if the spec itself was marked done by the overseer
-        // Or if the overseer completed without creating task groups (simpler implementation)
-        if (allTaskGroupsDone) {
-            console.log(`[Orchestrator] Spec ${specId} appears complete, notifying main claude`);
+        if (!allTaskGroupsDone) {
+            const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
+            console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
+            return;
+        }
 
-            // Mark spec as ready for review
-            this.db.updateSpec(specId, { status: 'merging' });
+        console.log(`[Orchestrator] Spec ${specId} all task groups complete, transitioning to merging`);
 
-            // Notify main claude to review and merge
-            if (this.mainClaude) {
-                await this.mainClaude.sendMessage(`
+        // Mark spec as ready for review
+        this.db.updateSpec(specId, { status: 'merging' });
+        console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
+
+        // Notify main claude to review and merge
+        if (this.mainClaude) {
+            console.log(`[Orchestrator] Notifying main Claude about completed spec ${specId}`);
+            await this.mainClaude.sendMessage(`
 Spec implementation complete: ${specId}
 
 The overseer has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
@@ -314,12 +327,13 @@ The overseer has finished implementing this spec. Please review the changes in w
 3. Request changes if something needs to be fixed
 
 Use \`o8 spec update ${specId} -s done\` after merging, or \`o8 spec update ${specId} -s in_progress\` if changes are needed.
-                `);
-            }
-
-            // Broadcast state update
-            this.wsHub.broadcastState(this.db);
+            `);
+        } else {
+            console.warn(`[Orchestrator] Main Claude not available to notify about spec ${specId} completion`);
         }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
     }
 
     async answerQuestion(questionId: string, response: string): Promise<void> {
