@@ -84,7 +84,7 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 
 - `main`: Roadmap curator, final reviewer
 - `spec_creator`: Detailed specification writer
-- `overseer`: Spec implementation manager
+- `coordinator`: Spec implementation manager
 - `worker`: Task executor (multiple can run in parallel)
 
 ## Tech Stack

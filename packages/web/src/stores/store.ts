@@ -33,7 +33,7 @@ export interface Task {
 
 export interface ClaudeInstance {
     id: string;
-    role: 'main' | 'spec_creator' | 'overseer' | 'worker';
+    role: 'main' | 'spec_creator' | 'coordinator' | 'worker';
     status: string;
     context_type?: string;
     context_id?: string;

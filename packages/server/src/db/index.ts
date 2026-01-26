@@ -54,7 +54,7 @@ export interface Task {
 
 export interface ClaudeInstance {
     id: string;
-    role: 'main' | 'spec_creator' | 'overseer' | 'worker';
+    role: 'main' | 'spec_creator' | 'coordinator' | 'worker';
     tmux_pane: string | null;
     tmux_window: string | null;
     resume_id: string | null;
@@ -199,6 +199,14 @@ export class Db {
         this.db = new Database(dbPath);
         this.db.pragma('journal_mode = WAL');
         this.db.exec(SCHEMA);
+        this.migrateOverseerToCoordinator();
+    }
+
+    private migrateOverseerToCoordinator(): void {
+        const result = this.db.prepare("UPDATE claude_instances SET role = 'coordinator' WHERE role = 'overseer'").run();
+        if (result.changes > 0) {
+            console.log(`[DB Migration] Updated ${result.changes} overseer instances to coordinator`);
+        }
     }
 
     close(): void {

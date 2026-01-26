@@ -119,8 +119,8 @@ These credentials are stored locally and reused for subsequent runs.
 
 3. **Spec Implementation**: For each approved spec:
    - Creates a new git worktree
-   - Spawns an overseer Claude to manage implementation
-   - Overseer may spawn worker Claudes for parallel tasks
+   - Spawns a coordinator Claude to manage implementation
+   - Coordinator may spawn worker Claudes for parallel tasks
    - Each task group results in a commit
    - Workers merge back to spec branch when done
 

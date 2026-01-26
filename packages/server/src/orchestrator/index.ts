@@ -1,7 +1,7 @@
 import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
-import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, OVERSEER_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
+import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, COORDINATOR_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
@@ -147,7 +147,7 @@ Please review and decide what to work on first.
 
             const instance = new ClaudeInstance({
                 id: record.id,
-                role: record.role as 'main' | 'spec_creator' | 'overseer' | 'worker',
+                role: record.role as 'main' | 'spec_creator' | 'coordinator' | 'worker',
                 db: this.db,
                 worktreePath: wtPath,
                 resumeId: record.resume_id,
@@ -265,18 +265,18 @@ The system will automatically start implementation once the spec is approved.
         const worktreeName = `spec-${spec.id}`;
         const wtPath = await this.git.createWorktree(worktreeName, 'main');
 
-        const overseer = new ClaudeInstance({
+        const coordinator = new ClaudeInstance({
             id: nanoid(),
-            role: 'overseer',
+            role: 'coordinator',
             db: this.db,
             worktreePath: wtPath,
-            systemPrompt: OVERSEER_PROMPT,
+            systemPrompt: COORDINATOR_PROMPT,
             contextType: 'spec',
             contextId: spec.id,
         });
 
-        await overseer.start();
-        this.instances.set(overseer.id, overseer);
+        await coordinator.start();
+        this.instances.set(coordinator.id, coordinator);
 
         // Update spec status
         this.db.updateSpec(spec.id, {
@@ -287,13 +287,13 @@ The system will automatically start implementation once the spec is approved.
         console.log(`[Orchestrator] Spec ${spec.id} status: approved → in_progress`);
 
         // Set up handlers
-        overseer.on('output', (data) => {
-            this.wsHub.broadcastClaudeOutput(overseer.id, data);
+        coordinator.on('output', (data) => {
+            this.wsHub.broadcastClaudeOutput(coordinator.id, data);
         });
 
-        overseer.on('question', (question) => {
+        coordinator.on('question', (question) => {
             const q = this.db.createUserQuestion({
-                claude_instance_id: overseer.id,
+                claude_instance_id: coordinator.id,
                 question,
                 response: null,
                 status: 'pending',
@@ -301,14 +301,14 @@ The system will automatically start implementation once the spec is approved.
             this.wsHub.broadcastQuestion(q);
         });
 
-        overseer.on('idle', () => {
-            console.log(`[Orchestrator] Overseer ${overseer.id} is idle, checking completion for spec ${spec.id}`);
+        coordinator.on('idle', () => {
+            console.log(`[Orchestrator] Coordinator ${coordinator.id} is idle, checking completion for spec ${spec.id}`);
             this.checkSpecCompletion(spec.id);
         });
 
-        // Send spec to overseer
-        await overseer.sendMessage(`
-${OVERSEER_PROMPT}
+        // Send spec to coordinator
+        await coordinator.sendMessage(`
+${COORDINATOR_PROMPT}
 
 Please implement this spec:
 
@@ -354,7 +354,7 @@ ${spec.content}
         console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
         // Check if all task groups are done
-        // Require at least one task group to prevent premature completion before overseer creates tasks
+        // Require at least one task group to prevent premature completion before coordinator creates tasks
         const allTaskGroupsDone = taskGroups.length > 0 && taskGroups.every((tg) => tg.status === 'done');
 
         if (!allTaskGroupsDone) {
@@ -375,7 +375,7 @@ ${spec.content}
             await this.mainClaude.sendMessage(`
 Spec implementation complete: ${specId}
 
-The overseer has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
+The coordinator has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
 1. Merge directly to main if everything looks good
 2. Create a PR for review
 3. Request changes if something needs to be fixed
