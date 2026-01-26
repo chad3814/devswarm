@@ -12,6 +12,7 @@ export class Orchestrator {
     private running = false;
     private mainClaude?: ClaudeInstance;
     private instances = new Map<string, ClaudeInstance>();
+    private notifiedRoadmapItems = new Set<string>();
 
     constructor(
         private db: Db,
@@ -188,10 +189,13 @@ Please review and decide what to work on first.
                 // 3. Check for completed implementations
                 await this.checkCompletions();
 
-                // 4. Check for completed roadmap items and close GitHub issues
+                // 4. Update roadmap items when specs complete
+                await this.checkRoadmapProgression();
+
+                // 5. Check for completed roadmap items and close GitHub issues
                 await this.checkRoadmapCompletion();
 
-                // 5. Broadcast current state
+                // 6. Broadcast current state
                 this.wsHub.broadcastState(this.db);
             } catch (e) {
                 console.error('Error in orchestrator loop:', e);
@@ -205,7 +209,19 @@ Please review and decide what to work on first.
         const pending = this.db.getRoadmapItems({ status: 'pending' });
 
         for (const item of pending) {
+            // Skip if already has a spec (even if status is still 'pending')
+            if (item.spec_id) {
+                continue;
+            }
+
+            // Skip if already notified
+            if (this.notifiedRoadmapItems.has(item.id)) {
+                continue;
+            }
+
+            // Check if has unresolved dependencies
             if (!this.db.hasUnresolvedDependencies('roadmap_item', item.id)) {
+<<<<<<< HEAD
                 // This item is ready for spec creation - notify main Claude
                 console.log(`[Orchestrator] Roadmap item ready for spec: ${item.title}`);
 
@@ -233,6 +249,30 @@ After creating the spec:
                     `);
                 } else {
                     console.warn(`[Orchestrator] Main Claude not available to notify about roadmap item ${item.id}`);
+=======
+                console.log(`[Orchestrator] Notifying main Claude about roadmap item: ${item.title}`);
+
+                // Mark as notified
+                this.notifiedRoadmapItems.add(item.id);
+
+                // Notify main Claude to create spec
+                if (this.mainClaude) {
+                    await this.mainClaude.sendMessage(`
+New roadmap item ready for specification:
+
+ID: ${item.id}
+Title: ${item.title}
+Description: ${item.description}
+
+Please create a detailed spec for this roadmap item:
+1. Research the codebase to understand current implementation
+2. Create spec content in a markdown file
+3. Use: o8 spec create -r ${item.id} -c @spec.md
+4. Approve the spec: o8 spec approve <spec-id>
+
+The system will automatically start implementation once the spec is approved.
+                    `);
+>>>>>>> devswarm/spec-bbgzYM0aHl_Ii-bUfX9-Q
                 }
             }
         }
@@ -312,6 +352,24 @@ ${spec.content}
 
         for (const spec of inProgress) {
             await this.checkSpecCompletion(spec.id);
+        }
+    }
+
+    private async checkRoadmapProgression(): Promise<void> {
+        // Check for specs that are done and update their roadmap items
+        const doneSpecs = this.db.getSpecs({ status: 'done' });
+
+        for (const spec of doneSpecs) {
+            if (spec.roadmap_item_id) {
+                const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+                if (roadmapItem && roadmapItem.status !== 'done') {
+                    console.log(`[Orchestrator] Marking roadmap item ${roadmapItem.title} as done (spec completed)`);
+                    this.db.updateRoadmapItem(spec.roadmap_item_id, { status: 'done' });
+
+                    // Clear from notified set
+                    this.notifiedRoadmapItems.delete(spec.roadmap_item_id);
+                }
+            }
         }
     }
 

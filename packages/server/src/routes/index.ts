@@ -145,6 +145,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
         if (spec) {
             app.wsHub.broadcastSpecUpdate(spec);
+
+            // If spec is marked as done, update the associated roadmap item to done
+            if (updates.status === 'done' && spec.roadmap_item_id) {
+                const roadmapItem = app.db.getRoadmapItem(spec.roadmap_item_id);
+                if (roadmapItem && roadmapItem.status !== 'done') {
+                    app.db.updateRoadmapItem(spec.roadmap_item_id, { status: 'done' });
+                    console.log(`[API] Roadmap item ${spec.roadmap_item_id} marked as done (spec ${id} complete)`);
+                    app.wsHub.broadcastState(app.db);
+                }
+            }
         }
 
         return spec;
