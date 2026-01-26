@@ -2,10 +2,11 @@ import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
 import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, OVERSEER_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
-import { fetchGitHubIssues } from '../github/issues.js';
+import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
 import { nanoid } from 'nanoid';
+import { getGitHubRepoInfo } from '../git/repo-info.js';
 
 export class Orchestrator {
     private running = false;
@@ -75,6 +76,7 @@ export class Orchestrator {
                     this.db.createRoadmapItem({
                         github_issue_id: issue.number,
                         github_issue_url: issue.html_url,
+                        github_issue_closed: 0,
                         title: issue.title,
                         description: issue.body || '',
                         status: 'pending',
@@ -186,7 +188,10 @@ Please review and decide what to work on first.
                 // 3. Check for completed implementations
                 await this.checkCompletions();
 
-                // 4. Broadcast current state
+                // 4. Check for completed roadmap items and close GitHub issues
+                await this.checkRoadmapCompletion();
+
+                // 5. Broadcast current state
                 this.wsHub.broadcastState(this.db);
             } catch (e) {
                 console.error('Error in orchestrator loop:', e);
@@ -350,6 +355,37 @@ Use \`o8 spec update ${specId} -s done\` after merging, or \`o8 spec update ${sp
         return () => {
             instance.off('output', callback);
         };
+    }
+
+    private async checkRoadmapCompletion(): Promise<void> {
+        const completedItems = this.db.getCompletedRoadmapItemsWithUnclosedIssues();
+
+        if (completedItems.length === 0) {
+            return;
+        }
+
+        // Get repository info from git remote
+        const repoInfo = getGitHubRepoInfo();
+        if (!repoInfo) {
+            console.error('Cannot close GitHub issues: unable to determine GitHub repository from git remote');
+            return;
+        }
+
+        for (const item of completedItems) {
+            if (!item.github_issue_id) {
+                continue;
+            }
+
+            try {
+                console.log(`Closing GitHub issue #${item.github_issue_id} for completed roadmap item: ${item.title}`);
+                await closeIssue(repoInfo.owner, repoInfo.repo, item.github_issue_id);
+                this.db.markGitHubIssueClosed(item.id);
+                console.log(`Successfully closed GitHub issue #${item.github_issue_id}`);
+            } catch (error) {
+                console.error(`Failed to close GitHub issue #${item.github_issue_id}:`, error);
+                // Continue processing other issues - don't let one failure stop the rest
+            }
+        }
     }
 }
 
