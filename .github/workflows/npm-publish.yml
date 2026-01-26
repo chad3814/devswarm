@@ -107,10 +107,11 @@ jobs:
         run: |
           cd packages/cli
           npm publish --tag ${{ steps.version.outputs.tag }} --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Uses npm Trusted Publishing via GitHub Actions OIDC (id-token: write permission)
-        # NODE_AUTH_TOKEN provides authentication, provenance adds cryptographic attestation
+        # Authentication via NPM Trusted Publishing:
+        # - Uses GitHub Actions OIDC (id-token: write permission above)
+        # - setup-node with registry-url configures npm client for OIDC automatically
+        # - No NODE_AUTH_TOKEN needed - OIDC authenticates directly with NPM
+        # - --provenance flag adds cryptographic attestation to the package
 
       - name: Commit version bump (release branch only)
         if: github.ref_name == 'release' && steps.check.outputs.exists == 'false'
