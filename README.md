@@ -49,6 +49,9 @@ An agentic coding orchestrator that uses Claude Code CLI and git worktrees to pa
 - Docker
 - Node.js 22+
 - A GitHub account
+- Claude authentication (one of):
+  - **Claude Code subscription**: Run `claude setup-token` to authenticate
+  - **Anthropic API key**: Get a key from https://console.anthropic.com/settings/keys
 
 ## Installation
 
@@ -89,6 +92,17 @@ devswarm rm owner/repo
 # View logs
 devswarm logs owner/repo
 ```
+
+### First-Time Setup
+
+When you first run `devswarm owner/repo`, you'll be prompted for authentication:
+
+1. **GitHub Authentication**: Follow the device flow to authenticate with GitHub
+2. **Claude Authentication**:
+   - **If you have a Claude Code subscription**: Run `claude setup-token` in your terminal first, then paste the token when prompted
+   - **If you have an Anthropic API key**: Paste your API key (starts with `sk-ant-`) when prompted
+
+These credentials are stored locally and reused for subsequent runs.
 
 ## How It Works
 
@@ -161,6 +175,24 @@ cd packages/server && npm run dev
 # Run only the web UI
 cd packages/web && npm run dev
 ```
+
+## Troubleshooting
+
+### Authentication Issues
+
+**Problem**: Claude instances fail to start or authenticate
+
+**Solutions**:
+- **For Claude Code subscriptions**: Ensure you've run `claude setup-token` and entered the correct token
+- **For API keys**: Verify your API key is correct and has not expired at https://console.anthropic.com/settings/keys
+- **Reset credentials**: Run `devswarm rm owner/repo` to remove the container and stored credentials, then start fresh
+
+**Problem**: "Invalid token" or authentication errors inside the container
+
+**Solutions**:
+- The container uses the `CLAUDE_CODE_OAUTH_TOKEN` environment variable for authentication
+- If you recently changed from an API key to a subscription token (or vice versa), stop and restart the container
+- Check container logs with `devswarm logs owner/repo` for specific error messages
 
 ## License
 
