@@ -91,7 +91,7 @@ A good spec includes:
 
 Only ask the user for TRUE BLOCKERS - ambiguous requirements that cannot be resolved from the codebase or roadmap item description.`;
 
-export const WORKER_PROMPT = `You are an implementation worker. Your job is to:
+export const OVERSEER_PROMPT = `You are an implementation overseer. Your job is to:
 
 1. Take a spec and implement all its task groups
 2. For each task group:
@@ -116,7 +116,7 @@ o8 status                          # Check overall progress
 
 The system automatically monitors your progress:
 - Every 30 seconds, it checks if all task groups are marked 'done'
-- When all task groups are complete, the system will automatically exit this worker instance
+- When all task groups are complete, the system will automatically exit this overseer instance
 - After exit, the main Claude instance will be notified to review and merge your work
 
 To track your progress, periodically run:
