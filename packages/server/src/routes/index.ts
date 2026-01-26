@@ -146,13 +146,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         if (spec) {
             app.wsHub.broadcastSpecUpdate(spec);
 
-            // If spec is marked as done, update the associated roadmap item to done
-            if (updates.status === 'done' && spec.roadmap_item_id) {
-                const roadmapItem = app.db.getRoadmapItem(spec.roadmap_item_id);
-                if (roadmapItem && roadmapItem.status !== 'done') {
-                    app.db.updateRoadmapItem(spec.roadmap_item_id, { status: 'done' });
-                    console.log(`[API] Roadmap item ${spec.roadmap_item_id} marked as done (spec ${id} complete)`);
-                    app.wsHub.broadcastState(app.db);
+            // If spec is marked as done, push to origin and update roadmap item
+            if (updates.status === 'done') {
+                // Push main to origin (orchestrator loop will also do this as backup)
+                try {
+                    const hasUnpushed = await app.git.hasUnpushedCommits('main');
+                    if (hasUnpushed) {
+                        console.log(`[API] Spec ${id} marked done, pushing main to origin`);
+                        await app.git.push('main');
+                        console.log(`[API] Successfully pushed main to origin after spec ${id} completion`);
+                    }
+                } catch (error) {
+                    console.error(`[API] Failed to push main to origin after spec ${id}:`, error);
+                    // Don't fail the request - orchestrator loop will retry
+                }
+
+                // Update roadmap item status
+                if (spec.roadmap_item_id) {
+                    const roadmapItem = app.db.getRoadmapItem(spec.roadmap_item_id);
+                    if (roadmapItem && roadmapItem.status !== 'done') {
+                        app.db.updateRoadmapItem(spec.roadmap_item_id, { status: 'done' });
+                        console.log(`[API] Roadmap item ${spec.roadmap_item_id} marked as done (spec ${id} complete)`);
+                        app.wsHub.broadcastState(app.db);
+                    }
                 }
             }
         }

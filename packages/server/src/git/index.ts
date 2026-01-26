@@ -137,10 +137,56 @@ export class GitManager {
         await this.git(`worktree remove ${wtPath} --force`);
     }
 
+    async hasUnpushedCommits(worktreeName: string): Promise<boolean> {
+        const wtPath = path.join(this.worktreesPath, worktreeName);
+        const branch = await this.getCurrentBranch(worktreeName);
+
+        try {
+            // Check if there are commits on local branch not on remote
+            const output = await this.git(`rev-list origin/${branch}..${branch} --count`, wtPath);
+            const count = parseInt(output.trim(), 10);
+            return count > 0;
+        } catch (error: unknown) {
+            // If remote branch doesn't exist, we have unpushed commits
+            const err = error as Error;
+            if (err.message.includes('unknown revision') || err.message.includes('does not have any commits yet')) {
+                return true;
+            }
+            // On other errors, assume we need to push (safe default)
+            console.warn(`[GitManager] Could not check unpushed commits for ${worktreeName}: ${err.message}`);
+            return true;
+        }
+    }
+
     async push(worktreeName: string): Promise<void> {
         const wtPath = path.join(this.worktreesPath, worktreeName);
         const branch = await this.getCurrentBranch(worktreeName);
-        await this.git(`push origin ${branch}`, wtPath);
+
+        try {
+            await this.git(`push origin ${branch}`, wtPath);
+            console.log(`[GitManager] Successfully pushed ${branch} to origin from worktree ${worktreeName}`);
+        } catch (error: unknown) {
+            const err = error as Error & { stderr?: string };
+            const errorMessage = err.stderr || err.message || String(error);
+
+            // Log meaningful error messages for common failure scenarios
+            if (errorMessage.includes('Authentication failed') || errorMessage.includes('could not read Username')) {
+                console.error(`[GitManager] Push failed: GitHub authentication required. Ensure gh auth is configured.`);
+                throw new Error('Push failed: GitHub authentication required');
+            } else if (errorMessage.includes('rejected') && errorMessage.includes('non-fast-forward')) {
+                console.error(`[GitManager] Push failed: Remote has changes not present locally. Pull and merge first.`);
+                throw new Error('Push failed: Remote branch has diverged');
+            } else if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('Could not resolve host')) {
+                console.error(`[GitManager] Push failed: Network connectivity issue. Check internet connection.`);
+                throw new Error('Push failed: Network error');
+            } else if (errorMessage.includes('Permission denied') || errorMessage.includes('403')) {
+                console.error(`[GitManager] Push failed: Permission denied. Check repository access rights.`);
+                throw new Error('Push failed: Permission denied');
+            } else {
+                console.error(`[GitManager] Push failed with unexpected error: ${errorMessage}`);
+                throw new Error(`Push failed: ${errorMessage}`);
+            }
+        }
     }
 
     async listWorktrees(): Promise<string[]> {
