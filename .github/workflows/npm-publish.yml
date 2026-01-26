@@ -77,16 +77,20 @@ jobs:
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION="${BASE_VERSION}-dev.${TIMESTAMP}.${SHORT_SHA}"
             TAG="dev"
+            UPDATE="yes"
           else
             VERSION="${BASE_VERSION}"
             TAG="latest"
+            UPDATE="no"
           fi
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "update="${UPDATE}" >> $GITHUB_OUTPUT
           echo "Publishing version ${VERSION} with tag ${TAG}"
 
       - name: Update package version
+        if: steps.version.outputs.update == 'yes'
         run: |
           cd packages/cli
           npm version ${{ steps.version.outputs.version }} --no-git-tag-version
