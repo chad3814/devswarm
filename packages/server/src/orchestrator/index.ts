@@ -325,8 +325,9 @@ ${spec.content}
         const taskGroups = this.db.getTaskGroupsForSpec(specId);
         console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
-        // Check if all task groups are done (if any exist)
-        const allTaskGroupsDone = taskGroups.length === 0 || taskGroups.every((tg) => tg.status === 'done');
+        // Check if all task groups are done
+        // Require at least one task group to prevent premature completion before overseer creates tasks
+        const allTaskGroupsDone = taskGroups.length > 0 && taskGroups.every((tg) => tg.status === 'done');
 
         if (!allTaskGroupsDone) {
             const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
