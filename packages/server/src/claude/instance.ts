@@ -360,8 +360,11 @@ export class ClaudeInstance extends EventEmitter {
         if (this.role === 'overseer' && this.options.contextId) {
             const spec = this.options.db.getSpec(this.options.contextId);
             if (spec) {
-                // For now, just log - we'll add error_message field in Task Group 3
                 console.error(`[Claude ${this.id}] Spec ${this.options.contextId} timed out`);
+                this.options.db.updateSpec(this.options.contextId, {
+                    error_message: `Overseer instance exceeded maximum runtime (${this.options.maxRuntime || 2 * 60 * 60 * 1000}ms)`,
+                    status: 'error',
+                });
             }
         }
 

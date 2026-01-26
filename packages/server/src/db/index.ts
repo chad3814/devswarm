@@ -22,6 +22,7 @@ export interface Spec {
     status: string;
     worktree_name: string | null;
     branch_name: string | null;
+    error_message: string | null;
     created_at: number;
     updated_at: number;
 }
@@ -104,6 +105,7 @@ CREATE TABLE IF NOT EXISTS specs (
     status TEXT NOT NULL DEFAULT 'draft',
     worktree_name TEXT,
     branch_name TEXT,
+    error_message TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
@@ -237,10 +239,10 @@ export class Db {
     createSpec(spec: Omit<Spec, 'id' | 'created_at' | 'updated_at'>): Spec {
         const id = nanoid();
         const stmt = this.db.prepare(`
-            INSERT INTO specs (id, roadmap_item_id, content, status, worktree_name, branch_name)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO specs (id, roadmap_item_id, content, status, worktree_name, branch_name, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(id, spec.roadmap_item_id, spec.content, spec.status, spec.worktree_name, spec.branch_name);
+        stmt.run(id, spec.roadmap_item_id, spec.content, spec.status, spec.worktree_name, spec.branch_name, spec.error_message);
         return this.getSpec(id)!;
     }
 
