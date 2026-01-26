@@ -433,7 +433,7 @@ Use \`o8 spec update ${specId} -s done\` after merging, or \`o8 spec update ${sp
         }
 
         // Get repository info from git remote
-        const repoInfo = getGitHubRepoInfo();
+        const repoInfo = getGitHubRepoInfo(`${config.worktreesPath}/main`);
         if (!repoInfo) {
             console.error('Cannot close GitHub issues: unable to determine GitHub repository from git remote');
             return;
