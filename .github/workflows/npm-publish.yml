@@ -86,7 +86,7 @@ jobs:
 
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "update="${UPDATE}" >> $GITHUB_OUTPUT
+          echo "update=${UPDATE}" >> $GITHUB_OUTPUT
           echo "Publishing version ${VERSION} with tag ${TAG}"
 
       - name: Update package version
