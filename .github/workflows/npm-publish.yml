@@ -54,7 +54,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          # No registry-url needed - using npm Trusted Publishing via OIDC
+          registry-url: 'https://registry.npmjs.org'
 
       - name: Download build artifacts
         uses: actions/download-artifact@v4
@@ -107,8 +107,10 @@ jobs:
         run: |
           cd packages/cli
           npm publish --tag ${{ steps.version.outputs.tag }} --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Uses npm Trusted Publishing via GitHub Actions OIDC (id-token: write permission)
-        # No NODE_AUTH_TOKEN needed - authentication handled automatically via provenance
+        # NODE_AUTH_TOKEN provides authentication, provenance adds cryptographic attestation
 
       - name: Commit version bump (release branch only)
         if: github.ref_name == 'release' && steps.check.outputs.exists == 'false'
