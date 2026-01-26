@@ -3,7 +3,7 @@ import { useStore } from '../../stores/store';
 const ROLE_COLORS: Record<string, string> = {
     main: 'bg-green-500',
     spec_creator: 'bg-blue-500',
-    overseer: 'bg-purple-500',
+    coordinator: 'bg-purple-500',
     worker: 'bg-yellow-500',
 };
 

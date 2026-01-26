@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { Db, ClaudeInstance as ClaudeInstanceRecord } from '../db/index.js';
 import { EventEmitter } from 'events';
 
-export type ClaudeRole = 'main' | 'spec_creator' | 'overseer' | 'worker';
+export type ClaudeRole = 'main' | 'spec_creator' | 'coordinator' | 'worker';
 
 export interface ClaudeInstanceOptions {
     id: string;
@@ -72,8 +72,8 @@ export class ClaudeInstance extends EventEmitter {
 
         console.log(`[Claude ${id}] Ready (${role}) in ${worktreePath}`);
 
-        // Start completion polling for overseer role
-        if (role === 'overseer' && this.options.contextId) {
+        // Start completion polling for coordinator role
+        if (role === 'coordinator' && this.options.contextId) {
             this.startCompletionPolling();
         }
 
@@ -265,7 +265,7 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     private checkOwnCompletion(): void {
-        if (this.role !== 'overseer' || !this.options.contextId) {
+        if (this.role !== 'coordinator' || !this.options.contextId) {
             return;
         }
 
@@ -356,13 +356,13 @@ export class ClaudeInstance extends EventEmitter {
             resume_id: this.sessionId || null,
         });
 
-        // If this is an overseer, mark the spec with an error
-        if (this.role === 'overseer' && this.options.contextId) {
+        // If this is a coordinator, mark the spec with an error
+        if (this.role === 'coordinator' && this.options.contextId) {
             const spec = this.options.db.getSpec(this.options.contextId);
             if (spec) {
                 console.error(`[Claude ${this.id}] Spec ${this.options.contextId} timed out`);
                 this.options.db.updateSpec(this.options.contextId, {
-                    error_message: `Overseer instance exceeded maximum runtime (${this.options.maxRuntime || 2 * 60 * 60 * 1000}ms)`,
+                    error_message: `Coordinator instance exceeded maximum runtime (${this.options.maxRuntime || 2 * 60 * 60 * 1000}ms)`,
                     status: 'error',
                 });
             }
