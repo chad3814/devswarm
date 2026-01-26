@@ -43,7 +43,7 @@ export function App() {
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
             <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
-                <h1 className="text-xl font-bold">Orchestr8</h1>
+                <h1 className="text-xl font-bold">/dev/swarm</h1>
                 <button
                     onClick={() => {
                         if (confirm('Are you sure you want to shut down? All work will be saved.')) {
