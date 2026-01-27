@@ -6,12 +6,49 @@ import open from 'open';
 import { program } from 'commander';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
 import * as readline from 'readline';
+import { fileURLToPath } from 'url';
 
 const docker = new Docker();
-const DEFAULT_TAG = 'dev';
+
+/**
+ * Read the package version from package.json
+ */
+function getPackageVersion(): string {
+    try {
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = dirname(__filename);
+        const pkgPath = join(__dirname, '../package.json');
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+        return pkg.version;
+    } catch (error) {
+        console.warn('Failed to read package version, defaulting to dev tag');
+        return 'unknown';
+    }
+}
+
+/**
+ * Determine the default Docker image tag based on the CLI version
+ * - Development versions (containing '-dev.') use 'dev' tag
+ * - Release versions use 'latest' tag
+ * - Unknown/malformed versions default to 'dev' for safety
+ */
+function getDefaultTag(version: string): 'dev' | 'latest' {
+    // If version detection failed, use dev tag as safe fallback
+    if (version === 'unknown') {
+        return 'dev';
+    }
+
+    if (version.includes('-dev.')) {
+        return 'dev';
+    }
+    return 'latest';
+}
+
+const VERSION = getPackageVersion();
+const DEFAULT_TAG = getDefaultTag(VERSION);
 const IMAGE_REPO = 'ghcr.io/chad3814/devswarm';
 const PORT_RANGE_START = 3814;
 
@@ -548,8 +585,6 @@ async function clearAuth(): Promise<void> {
         console.log('No credentials to clear.');
     }
 }
-
-const VERSION = '0.1.0';
 
 // Custom version display
 const originalVersion = program.version.bind(program);
