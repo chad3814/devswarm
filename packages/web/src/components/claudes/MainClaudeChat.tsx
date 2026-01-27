@@ -9,6 +9,7 @@ interface MainClaudeChatProps {
 export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
     const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string; messageId?: string }[]>([]);
     const [input, setInput] = useState('');
+    const [isExpanded, setIsExpanded] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
     const { subscribeToClaude, sendToMain } = useWebSocket();
@@ -75,6 +76,25 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
         setMessages((prev) => [...prev, { role: 'user', content: input }]);
         sendToMain(input);
         setInput('');
+        setIsExpanded(false); // Reset to collapsed state
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter' && e.shiftKey) {
+            e.preventDefault(); // Prevent form submit
+            const target = e.currentTarget;
+            const cursorPos = target.selectionStart || 0;
+            const newValue = input.slice(0, cursorPos) + '\n' + input.slice(cursorPos);
+            setInput(newValue);
+            setIsExpanded(true);
+        }
+    };
+
+    const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            handleSubmit(e as any);
+        }
     };
 
     return (
@@ -105,13 +125,26 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
 
             <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700">
                 <div className="flex gap-2">
-                    <input
-                        type="text"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                        placeholder="Send a message to main claude..."
-                        className="flex-1 bg-gray-800 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    {isExpanded ? (
+                        <textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleTextareaKeyDown}
+                            placeholder="Send a message to main claude... (Cmd/Ctrl+Enter to send)"
+                            className="flex-1 bg-gray-800 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                            rows={4}
+                            autoFocus
+                        />
+                    ) : (
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Send a message to main claude... (Shift+Enter for multi-line)"
+                            className="flex-1 bg-gray-800 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    )}
                     <button
                         type="submit"
                         className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
