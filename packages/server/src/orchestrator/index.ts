@@ -16,6 +16,8 @@ export class Orchestrator {
     private pushedSpecs = new Set<string>();
     private specErrorCounts = new Map<string, number>();
     private coordinatorLastActivityTime = new Map<string, number>();
+    private lastGitHubSync = 0;
+    private readonly GITHUB_SYNC_INTERVAL = 60_000; // 1 minute
 
     constructor(
         private db: Db,
@@ -87,12 +89,14 @@ export class Orchestrator {
                         spec_id: null,
                         resolution_method: 'merge_and_push',
                     });
+                    console.log(`[Orchestrator] Added new GitHub issue #${issue.number}: ${issue.title}`);
                 }
             }
 
             this.wsHub.broadcastState(this.db);
-        } catch (e) {
-            console.error('Error syncing GitHub issues:', e);
+        } catch (error) {
+            // Don't crash the loop if GitHub API is unavailable
+            console.error('[Orchestrator] Failed to sync GitHub issues:', error);
         }
     }
 
@@ -191,6 +195,13 @@ Please review and decide what to work on first.
     private async runLoop(): Promise<void> {
         while (this.running) {
             try {
+                // Sync GitHub issues periodically (every minute)
+                const now = Date.now();
+                if (now - this.lastGitHubSync >= this.GITHUB_SYNC_INTERVAL) {
+                    await this.syncGitHubIssues();
+                    this.lastGitHubSync = now;
+                }
+
                 // 1. Check for roadmap items needing specs
                 await this.checkForPendingSpecs();
 
