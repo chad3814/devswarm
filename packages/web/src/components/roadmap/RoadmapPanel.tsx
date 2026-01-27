@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore, RoadmapItem, Spec } from '../../stores/store';
+import { useStore, RoadmapItem } from '../../stores/store';
 import { api } from '../../api/client';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -39,14 +39,13 @@ const getResolutionDescription = (method: string | undefined): string => {
     }
 };
 
-function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, setLoadingSpecs }: {
+function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
     item: RoadmapItem;
-    specCache: Record<string, Spec>;
-    setSpecCache: React.Dispatch<React.SetStateAction<Record<string, Spec>>>;
     loadingSpecs: Set<string>;
     setLoadingSpecs: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const { specs, fetchSpec } = useStore();
 
     const handleResolutionChange = async (itemId: string, newMethod: string) => {
         try {
@@ -66,19 +65,21 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
             setIsExpanded(true);
 
             // Fetch spec details if needed
-            if (item.spec_id && !specCache[item.spec_id]) {
-                setLoadingSpecs(prev => new Set(prev).add(item.spec_id!));
-                try {
-                    const spec = await api.getSpec(item.spec_id);
-                    setSpecCache(prev => ({ ...prev, [item.spec_id!]: spec as Spec }));
-                } catch (e) {
-                    console.error('Failed to load spec:', e);
-                } finally {
-                    setLoadingSpecs(prev => {
-                        const next = new Set(prev);
-                        next.delete(item.spec_id!);
-                        return next;
-                    });
+            if (item.spec_id) {
+                const cached = specs.find((s) => s.id === item.spec_id);
+                if (!cached || !cached.taskGroups) {
+                    setLoadingSpecs(prev => new Set(prev).add(item.spec_id!));
+                    try {
+                        await fetchSpec(item.spec_id);
+                    } catch (e) {
+                        console.error('Failed to load spec:', e);
+                    } finally {
+                        setLoadingSpecs(prev => {
+                            const next = new Set(prev);
+                            next.delete(item.spec_id!);
+                            return next;
+                        });
+                    }
                 }
             }
         }
@@ -97,8 +98,8 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
             );
         }
 
-        // Get spec from cache
-        const spec = specCache[item.spec_id];
+        // Get spec from store
+        const spec = specs.find((s) => s.id === item.spec_id);
         if (!spec?.taskGroups || spec.taskGroups.length === 0) {
             return (
                 <div className="text-sm text-gray-500 italic">
@@ -216,7 +217,6 @@ export function RoadmapPanel() {
     const [showAdd, setShowAdd] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDescription, setNewDescription] = useState('');
-    const [specCache, setSpecCache] = useState<Record<string, Spec>>({});
     const [loadingSpecs, setLoadingSpecs] = useState<Set<string>>(new Set());
     const [resolutionMethod, setResolutionMethod] = useState('merge_and_push');
 
@@ -297,8 +297,6 @@ export function RoadmapPanel() {
                     <RoadmapItemComponent
                         key={item.id}
                         item={item}
-                        specCache={specCache}
-                        setSpecCache={setSpecCache}
                         loadingSpecs={loadingSpecs}
                         setLoadingSpecs={setLoadingSpecs}
                     />

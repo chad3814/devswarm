@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { api } from '../api/client';
 
 export interface RoadmapItem {
     id: string;
@@ -96,6 +97,7 @@ interface OrchestratorState {
     addRoadmapItem: (item: RoadmapItem) => void;
     setSpecs: (specs: Spec[]) => void;
     updateSpec: (spec: Spec) => void;
+    fetchSpec: (specId: string) => Promise<Spec>;
     setClaudeInstances: (instances: ClaudeInstance[]) => void;
     updateClaudeInstance: (instance: ClaudeInstance) => void;
     addQuestion: (question: Question) => void;
@@ -143,6 +145,36 @@ export const useStore = create<OrchestratorState>((set, get) => ({
         set((state) => ({
             specs: state.specs.map((s) => (s.id === spec.id ? spec : s)),
         })),
+
+    fetchSpec: async (specId) => {
+        const { specs } = get();
+
+        // Check if already cached with full data
+        const cached = specs.find((s) => s.id === specId);
+        if (cached && cached.taskGroups) {
+            return cached; // Already have full spec with task groups
+        }
+
+        try {
+            const spec = (await api.getSpec(specId)) as Spec;
+
+            set((state) => {
+                // Replace or add spec in array
+                const existingIndex = state.specs.findIndex((s) => s.id === specId);
+                const updatedSpecs: Spec[] =
+                    existingIndex >= 0
+                        ? state.specs.map((s, i) => (i === existingIndex ? spec : s))
+                        : [...state.specs, spec];
+
+                return { specs: updatedSpecs };
+            });
+
+            return spec;
+        } catch (error) {
+            console.error('Failed to fetch spec:', error);
+            throw error;
+        }
+    },
 
     setClaudeInstances: (claudeInstances) => set({ claudeInstances }),
 
