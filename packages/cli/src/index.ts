@@ -527,6 +527,42 @@ async function tailLogs(repoArg: string): Promise<void> {
     });
 }
 
+/**
+ * Stream container logs and return cleanup function
+ */
+async function streamContainerLogs(
+    containerId: string,
+    onReady?: () => void
+): Promise<{ cleanup: () => void }> {
+    const container = docker.getContainer(containerId);
+    const stream = await container.logs({
+        follow: true,
+        stdout: true,
+        stderr: true,
+        tail: 50
+    });
+
+    let readyTriggered = false;
+
+    stream.on('data', (chunk: Buffer) => {
+        const line = chunk.toString();
+        process.stdout.write(line);
+
+        // Trigger ready callback when server is listening
+        if (!readyTriggered && onReady && line.includes('Server listening on port')) {
+            readyTriggered = true;
+            onReady();
+        }
+    });
+
+    const cleanup = () => {
+        // The stream is a Node.js readable stream that supports destroy
+        (stream as any).destroy();
+    };
+
+    return { cleanup };
+}
+
 async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
@@ -538,43 +574,51 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
     const { port, containerId, isNew } = await startContainer(info, tag, forcePull);
 
     if (options.attach) {
-        // Attached mode: follow logs and open browser
         console.log('Attaching to container logs...');
 
-        if (isNew) {
-            // For new containers, wait for ready signal
-            followLogs(containerId, () => {
-                console.log(`\nOpening http://localhost:${port}`);
-                open(`http://localhost:${port}`);
-            });
-        } else {
-            // For existing containers, open browser immediately and follow logs
-            console.log(`\nOpening http://localhost:${port}`);
-            open(`http://localhost:${port}`);
-
-            // Follow logs without callback (already ready)
-            const container = docker.getContainer(containerId);
-            const stream = await container.logs({
-                follow: true,
-                stdout: true,
-                stderr: true,
-                tail: 50
-            });
-
-            stream.on('data', (chunk: Buffer) => {
-                process.stdout.write(chunk.toString());
-            });
-        }
-
-        // Handle Ctrl+C gracefully in attach mode
-        process.on('SIGINT', async () => {
-            console.log('\nDetaching from logs (container will continue running)');
-            console.log(`To stop the container: devswarm stop ${info.owner}/${info.repo}`);
-            process.exit(0);
+        // Set up resolvable promise for blocking
+        let detachResolve: (() => void) | null = null;
+        const blockUntilDetach = new Promise<void>((resolve) => {
+            detachResolve = resolve;
         });
 
-        // Keep process alive
-        await new Promise(() => {}); // Block forever
+        // Stream logs with proper cleanup
+        const { cleanup } = await streamContainerLogs(
+            containerId,
+            isNew ? () => {
+                // For new containers, open browser when ready
+                console.log(`\nOpening http://localhost:${port}`);
+                open(`http://localhost:${port}`);
+            } : undefined
+        );
+
+        // For existing containers, open browser immediately
+        if (!isNew) {
+            console.log(`\nOpening http://localhost:${port}`);
+            open(`http://localhost:${port}`);
+        }
+
+        // Handle Ctrl+C gracefully
+        const sigintHandler = async () => {
+            console.log('\nDetaching from logs (container will continue running)');
+            console.log(`To stop the container: devswarm stop ${info.owner}/${info.repo}`);
+
+            // Clean up stream
+            cleanup();
+
+            // Resolve the blocking promise
+            if (detachResolve) {
+                detachResolve();
+            }
+
+            // Remove this handler to prevent accumulation
+            process.off('SIGINT', sigintHandler);
+        };
+
+        process.on('SIGINT', sigintHandler);
+
+        // Block until SIGINT
+        await blockUntilDetach;
     } else {
         // Detached mode: print info and return
         console.log(`\n✓ Container started successfully`);
