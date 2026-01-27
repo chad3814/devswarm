@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useStore, RoadmapItem, Spec, ClaudeInstance, Question, ClaudeMessage, TaskGroup, Task } from '../stores/store';
 
 type ServerMessage =
-    | { type: 'state'; payload: { roadmapItems: RoadmapItem[]; specs: Spec[]; claudeInstances: ClaudeInstance[] } }
+    | { type: 'state'; payload: { roadmapItems: RoadmapItem[]; specs: Spec[]; claudeInstances: ClaudeInstance[]; taskGroupsBySpec?: Record<string, TaskGroup[]> } }
     | { type: 'roadmap_update'; item: RoadmapItem }
     | { type: 'spec_update'; spec: Spec }
     | { type: 'claude_update'; instance: ClaudeInstance }
@@ -65,7 +65,16 @@ export function useWebSocket() {
             switch (msg.type) {
                 case 'state':
                     setRoadmapItems(msg.payload.roadmapItems);
-                    setSpecs(msg.payload.specs);
+                    // Merge task groups into specs if provided
+                    if (msg.payload.taskGroupsBySpec) {
+                        const specsWithTaskGroups = msg.payload.specs.map(spec => ({
+                            ...spec,
+                            taskGroups: msg.payload.taskGroupsBySpec?.[spec.id] || spec.taskGroups
+                        }));
+                        setSpecs(specsWithTaskGroups);
+                    } else {
+                        setSpecs(msg.payload.specs);
+                    }
                     setClaudeInstances(msg.payload.claudeInstances);
                     break;
 
