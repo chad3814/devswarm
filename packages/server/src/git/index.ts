@@ -1,9 +1,10 @@
-import { exec as execCb, spawn } from 'child_process';
+import { exec as execCb, execFile as execFileCb, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 
 const exec = promisify(execCb);
+const execFile = promisify(execFileCb);
 
 export interface MergeResult {
     success: boolean;
@@ -260,15 +261,17 @@ export class GitManager {
         // Push branch
         await this.git(`push -u origin ${branch}`, wtPath);
 
-        // Create PR using gh CLI
+        // Create PR using gh CLI with safe argument passing
         // Note: The merge method (squash, merge commit, or rebase) is controlled by
         // GitHub repository settings when the PR is merged. This command only creates
         // the PR. To preserve full commit history, repository administrators should
         // configure the repo to allow/default to "merge commits" rather than "squash and merge".
-        const { stdout } = await exec(
-            `gh pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}" --json url,number`,
-            { cwd: wtPath }
-        );
+        const { stdout } = await execFile('gh', [
+            'pr', 'create',
+            '--title', title,
+            '--body', body,
+            '--json', 'url,number'
+        ], { cwd: wtPath });
 
         return JSON.parse(stdout);
     }

@@ -429,67 +429,56 @@ ${spec.content}
         const taskGroups = this.db.getTaskGroupsForSpec(specId);
         console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
-        // Option 1: Task group-based completion (existing behavior)
-        if (taskGroups.length > 0) {
-            const allTaskGroupsDone = taskGroups.every((tg) => tg.status === 'done');
+        // Check if all task groups are done
+        const allTaskGroupsDone = taskGroups.length > 0 &&
+            taskGroups.every((tg) => tg.status === 'done');
 
-            if (!allTaskGroupsDone) {
-                const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
-                console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
-                return;
-            }
-
-            // All task groups done - mark as complete
-            console.log(`[Orchestrator] Spec ${specId} completing via task group path (all ${taskGroups.length} task groups done)`);
-            await this.transitionSpecToMerging(spec);
-            return;
-        }
-
-        // Option 2: Auto-detect completion for specs without task groups
-        // Check if coordinator has made commits and is idle
+        // Check if spec has commits and coordinator is idle (for auto-detect)
         const hasCommits = await this.specHasCommits(spec);
         const coordinatorIdle = this.isCoordinatorIdle(spec);
+        const autoDetectComplete = hasCommits && coordinatorIdle;
 
-        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect check - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
+        if (!allTaskGroupsDone && !autoDetectComplete) {
+            if (taskGroups.length > 0) {
+                const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
+                console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
+            } else {
+                console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
+            }
+            return; // Not complete yet
+        }
 
-        if (hasCommits && coordinatorIdle) {
-            console.log(`[Orchestrator] Spec ${specId} completing via auto-detect path (no task groups, has commits, coordinator idle)`);
+        // Spec is complete - apply resolution method
+        const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+        const resolutionMethod = roadmapItem?.resolution_method || spec.resolution_method || 'manual';
 
-            // Get roadmap item to check resolution preference
-            const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
-            const resolutionMethod = roadmapItem?.resolution_method || 'manual';
+        console.log(`[Orchestrator] Spec ${specId} complete, applying resolution: ${resolutionMethod}`);
 
-            console.log(`[Orchestrator] Spec ${specId} resolution method: ${resolutionMethod}`);
+        // Update to merging status
+        this.db.updateSpec(specId, { status: 'merging' });
+        console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
 
-            // Mark spec as merging
-            this.db.updateSpec(specId, { status: 'merging' });
-            console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
-
-            try {
-                switch (resolutionMethod) {
-                    case 'merge_and_push':
-                        await this.autoMergeAndPush(spec);
-                        break;
-                    case 'create_pr':
-                        await this.autoCreatePR(spec);
-                        break;
-                    case 'push_branch':
-                        await this.autoPushBranch(spec);
-                        break;
-                    case 'manual':
-                    default:
-                        await this.notifyMainClaudeForManualResolution(spec);
-                        break;
-                }
-            } catch (error) {
-                console.error(`[Orchestrator] Failed to auto-resolve spec ${specId}:`, error);
-                // Fall back to manual if auto-resolution fails
+        // Apply resolution method
+        try {
+            if (resolutionMethod === 'merge_and_push') {
+                await this.autoMergeAndPush(spec);
+            } else if (resolutionMethod === 'create_pr') {
+                await this.autoCreatePR(spec);
+            } else if (resolutionMethod === 'push_branch') {
+                await this.autoPushBranch(spec);
+            } else if (resolutionMethod === 'manual') {
                 await this.notifyMainClaudeForManualResolution(spec);
             }
-
-            // Broadcast state update
-            this.wsHub.broadcastState(this.db);
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to resolve spec ${specId}:`, error);
+            this.db.updateSpec(specId, {
+                status: 'error',
+                error_message: String(error)
+            });
         }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
     }
 
     private async autoMergeAndPush(spec: Spec): Promise<void> {
@@ -519,7 +508,8 @@ ${spec.content}
         // Notify main Claude of success
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(
-                `Spec ${spec.id} has been automatically merged to main and pushed to origin.`
+                `Spec ${spec.id} has been automatically merged to main and pushed to origin. ` +
+                `Resolution method: merge_and_push. The spec is now marked as done.`
             );
         }
     }
@@ -545,7 +535,8 @@ ${spec.content}
         // Notify main Claude
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(
-                `Spec ${spec.id} has been completed. Pull request created: ${pr.url}`
+                `Spec ${spec.id} has been resolved with a pull request: ${pr.url} ` +
+                `(PR #${pr.number}). Resolution method: create_pr. The spec is now marked as done.`
             );
         }
     }
