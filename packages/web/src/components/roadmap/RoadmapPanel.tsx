@@ -2,6 +2,16 @@ import { useState } from 'react';
 import { useStore, RoadmapItem } from '../../stores/store';
 import { api } from '../../api/client';
 
+interface Dependency {
+    id: string;
+    blocker_id: string;
+    blocker_title?: string;
+    blocker_status?: string;
+    blocker_spec_id?: string | null;
+    resolved: boolean;
+    created_at: number;
+}
+
 const STATUS_COLORS: Record<string, string> = {
     pending: 'bg-gray-500',
     spec_in_progress: 'bg-yellow-500',
@@ -45,6 +55,8 @@ function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
     setLoadingSpecs: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const [dependencies, setDependencies] = useState<Dependency[]>([]);
+    const [loadingDeps, setLoadingDeps] = useState(false);
     const { specs, fetchSpec } = useStore();
 
     const handleResolutionChange = async (itemId: string, newMethod: string) => {
@@ -63,6 +75,22 @@ function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
             setIsExpanded(false);
         } else {
             setIsExpanded(true);
+
+            // Fetch dependencies
+            if (item.has_unresolved_dependencies || item.dependency_count) {
+                setLoadingDeps(true);
+                try {
+                    const res = await fetch(`/api/roadmap/${item.id}/dependencies`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setDependencies(data.dependencies || []);
+                    }
+                } catch (e) {
+                    console.error('Failed to load dependencies:', e);
+                } finally {
+                    setLoadingDeps(false);
+                }
+            }
 
             // Fetch spec details if needed
             if (item.spec_id) {
@@ -157,6 +185,11 @@ function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
                 </span>
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[item.status] || 'bg-gray-500'}`} />
                 <span className="font-medium flex-1">{item.title}</span>
+                {item.has_unresolved_dependencies && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-900/50 text-yellow-400 flex-shrink-0" title="Has unresolved dependencies">
+                        🔒
+                    </span>
+                )}
                 <span className="text-xs text-gray-500 capitalize">{item.status.replace(/_/g, ' ')}</span>
                 <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300 flex-shrink-0">
                     {item.resolution_method === 'merge_and_push' && '🔀 Auto-merge'}
@@ -182,6 +215,45 @@ function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
                 <div className="px-3 pb-3 space-y-3 border-t border-gray-700 pt-3 mt-1">
                     {item.description && (
                         <p className="text-sm text-gray-300 whitespace-pre-wrap">{item.description}</p>
+                    )}
+
+                    {/* Dependencies */}
+                    {(item.has_unresolved_dependencies || item.dependency_count) && (
+                        <div>
+                            <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">Dependencies</h4>
+                            {loadingDeps ? (
+                                <div className="flex items-center gap-2 text-sm text-gray-400">
+                                    <span className="animate-spin">⟳</span>
+                                    <span>Loading dependencies...</span>
+                                </div>
+                            ) : dependencies.length > 0 ? (
+                                <div className="space-y-1">
+                                    {dependencies.map(dep => {
+                                        const isDone = dep.blocker_status === 'done';
+                                        return (
+                                            <div key={dep.id} className="flex items-start gap-2 text-sm">
+                                                <span className={isDone ? 'text-green-500' : 'text-yellow-500'}>
+                                                    {isDone ? '✓' : '🔒'}
+                                                </span>
+                                                <div className="flex-1">
+                                                    <div className={isDone ? 'text-gray-500 line-through' : 'text-gray-300'}>
+                                                        {dep.blocker_title || dep.blocker_id}
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 capitalize">
+                                                        {(dep.blocker_status || 'unknown').replace(/_/g, ' ')}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : null}
+                            {!loadingDeps && item.has_unresolved_dependencies && (
+                                <div className="text-xs text-yellow-400 mt-2">
+                                    ⚠ Cannot approve spec until all dependencies are resolved
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* Resolution Method Editor */}

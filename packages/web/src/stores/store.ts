@@ -9,6 +9,8 @@ export interface RoadmapItem {
     github_issue_url?: string;
     spec_id?: string;
     resolution_method?: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual';
+    has_unresolved_dependencies?: boolean;
+    dependency_count?: number;
 }
 
 export interface Spec {

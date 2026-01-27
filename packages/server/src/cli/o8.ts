@@ -63,7 +63,31 @@ roadmap
             console.error(`Roadmap item ${id} not found`);
             process.exit(1);
         }
+
         console.log(JSON.stringify(item, null, 2));
+
+        // Also show dependencies
+        try {
+            const response = await api<{
+                dependencies: Array<{
+                    id: string;
+                    blocker_id: string;
+                    blocker_title?: string;
+                    blocker_status?: string;
+                }>
+            }>(`/api/roadmap/${id}/dependencies`);
+
+            if (response.dependencies.length > 0) {
+                console.log('\nDependencies:');
+                for (const dep of response.dependencies) {
+                    const status = dep.blocker_status || 'unknown';
+                    const symbol = status === 'done' ? '✓' : '✗';
+                    console.log(`  ${symbol} [${status}] ${dep.blocker_title || dep.blocker_id}`);
+                }
+            }
+        } catch {
+            // Ignore if dependencies endpoint doesn't exist yet
+        }
     });
 
 roadmap
@@ -101,6 +125,109 @@ roadmap
         });
         console.log('Updated roadmap item:');
         console.log(JSON.stringify(item, null, 2));
+    });
+
+roadmap
+    .command('deps <id>')
+    .description('List dependencies for a roadmap item')
+    .action(async (id: string) => {
+        try {
+            const response = await api<{
+                dependencies: Array<{
+                    id: string;
+                    blocker_id: string;
+                    blocker_title?: string;
+                    blocker_status?: string;
+                    blocker_spec_id?: string | null;
+                    resolved: boolean;
+                    created_at: number;
+                }>
+            }>(`/api/roadmap/${id}/dependencies`);
+
+            // Get roadmap item details
+            const items = await api<Array<{ id: string; title: string; status: string }>>('/api/roadmap');
+            const item = items.find(i => i.id === id);
+            if (!item) {
+                console.error(`Roadmap item ${id} not found`);
+                process.exit(1);
+            }
+
+            console.log(`\nRoadmap Item: ${item.title} (${item.id})`);
+            console.log(`Status: ${item.status}\n`);
+
+            if (response.dependencies.length === 0) {
+                console.log('No dependencies (ready to approve)');
+                return;
+            }
+
+            console.log(`Dependencies (${response.dependencies.length}):`);
+            for (const dep of response.dependencies) {
+                const status = dep.blocker_status || 'unknown';
+                const isDone = status === 'done';
+                const symbol = isDone ? '✓' : '✗';
+                console.log(`${symbol} [${status}] ${dep.blocker_id}`);
+                if (dep.blocker_title) {
+                    console.log(`   ${dep.blocker_title}`);
+                }
+            }
+
+            const hasUnresolved = response.dependencies.some(d => (d.blocker_status || 'unknown') !== 'done');
+            if (hasUnresolved) {
+                console.log('\n⚠ Cannot approve spec until all dependencies are resolved.');
+            }
+        } catch (error: any) {
+            console.error(`Error fetching dependencies: ${error.message}`);
+            process.exit(1);
+        }
+    });
+
+roadmap
+    .command('add-dep')
+    .description('Add a dependency between roadmap items')
+    .requiredOption('--blocker <id>', 'Blocker roadmap item ID')
+    .requiredOption('--blocked <id>', 'Blocked roadmap item ID')
+    .action(async (options) => {
+        try {
+            await api(`/api/roadmap/${options.blocked}/dependencies`, {
+                method: 'POST',
+                body: JSON.stringify({ blocker_id: options.blocker }),
+            });
+            console.log(`✓ Dependency created: ${options.blocker} blocks ${options.blocked}`);
+        } catch (error: any) {
+            console.error(`Error creating dependency: ${error.message}`);
+            process.exit(1);
+        }
+    });
+
+roadmap
+    .command('remove-dep')
+    .description('Remove a dependency between roadmap items')
+    .requiredOption('--blocker <id>', 'Blocker roadmap item ID')
+    .requiredOption('--blocked <id>', 'Blocked roadmap item ID')
+    .action(async (options) => {
+        try {
+            // Get dependencies to find the ID
+            const response = await api<{
+                dependencies: Array<{
+                    id: string;
+                    blocker_id: string;
+                }>
+            }>(`/api/roadmap/${options.blocked}/dependencies`);
+
+            const dep = response.dependencies.find(d => d.blocker_id === options.blocker);
+            if (!dep) {
+                console.error('Dependency not found');
+                process.exit(1);
+            }
+
+            await api(`/api/roadmap/${options.blocked}/dependencies/${dep.id}`, {
+                method: 'DELETE',
+            });
+            console.log('✓ Dependency removed');
+        } catch (error: any) {
+            console.error(`Error removing dependency: ${error.message}`);
+            process.exit(1);
+        }
     });
 
 // Spec commands
@@ -184,12 +311,43 @@ spec
     .command('approve <id>')
     .description('Approve a spec for implementation')
     .action(async (id: string) => {
-        const spec = await api(`/api/specs/${id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'approved' }),
-        });
-        console.log('Spec approved:');
-        console.log(JSON.stringify(spec, null, 2));
+        try {
+            const spec = await api(`/api/specs/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'approved' }),
+            });
+            console.log('Spec approved:');
+            console.log(JSON.stringify(spec, null, 2));
+        } catch (error: any) {
+            // Parse error to check if it's a dependency validation error
+            const errorMessage = error.message || String(error);
+            if (errorMessage.includes('unresolved dependencies')) {
+                try {
+                    // Try to extract the error details from the response
+                    const match = errorMessage.match(/API error 400: (.*)/);
+                    if (match) {
+                        const errorData = JSON.parse(match[1]);
+                        console.error('\n❌ Cannot approve spec - unresolved dependencies:\n');
+                        if (errorData.blockers && Array.isArray(errorData.blockers)) {
+                            for (const blocker of errorData.blockers) {
+                                console.error(`  - [${blocker.status || 'unknown'}] ${blocker.id}`);
+                                if (blocker.title) {
+                                    console.error(`    ${blocker.title}`);
+                                }
+                            }
+                        }
+                        console.error('\n📋 Please complete the blocking roadmap items before approving this spec.\n');
+                    } else {
+                        console.error(errorMessage);
+                    }
+                } catch {
+                    console.error(errorMessage);
+                }
+                process.exit(1);
+            } else {
+                throw error;
+            }
+        }
     });
 
 // Task group commands
@@ -268,7 +426,7 @@ program
     .description('Show overall orchestrator status')
     .action(async () => {
         const [roadmapItems, specs, claudes] = await Promise.all([
-            api<Array<{ status: string }>>('/api/roadmap'),
+            api<Array<{ id: string; status: string; has_unresolved_dependencies?: boolean }>>('/api/roadmap'),
             api<Array<{ status: string }>>('/api/specs'),
             api<Array<{ id: string; role: string; status: string }>>('/api/claudes'),
         ]);
@@ -282,6 +440,12 @@ program
         }, {} as Record<string, number>);
         for (const [status, count] of Object.entries(roadmapByStatus)) {
             console.log(`  ${status}: ${count}`);
+        }
+
+        // Count blocked items
+        const blockedCount = roadmapItems.filter(item => item.has_unresolved_dependencies).length;
+        if (blockedCount > 0) {
+            console.log(`  🔒 blocked by dependencies: ${blockedCount}`);
         }
 
         console.log('\nSpecs:');
