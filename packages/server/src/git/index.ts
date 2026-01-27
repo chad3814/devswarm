@@ -261,6 +261,10 @@ export class GitManager {
         await this.git(`push -u origin ${branch}`, wtPath);
 
         // Create PR using gh CLI
+        // Note: The merge method (squash, merge commit, or rebase) is controlled by
+        // GitHub repository settings when the PR is merged. This command only creates
+        // the PR. To preserve full commit history, repository administrators should
+        // configure the repo to allow/default to "merge commits" rather than "squash and merge".
         const { stdout } = await exec(
             `gh pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}" --json url,number`,
             { cwd: wtPath }
