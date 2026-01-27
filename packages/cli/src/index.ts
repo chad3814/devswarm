@@ -7,7 +7,7 @@ import { program } from 'commander';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
-import { execSync, spawn } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 import * as readline from 'readline';
 import { fileURLToPath } from 'url';
 
@@ -143,7 +143,8 @@ function saveCredentials(creds: Credentials): void {
 
 function getGhTokenFromCli(): string | null {
     try {
-        return execSync('gh auth token', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        const result = spawnSync('gh', ['auth', 'token'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        return result.status === 0 ? result.stdout.trim() : null;
     } catch {
         return null;
     }
@@ -151,8 +152,8 @@ function getGhTokenFromCli(): string | null {
 
 function isGhAuthenticated(): boolean {
     try {
-        execSync('gh auth status', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-        return true;
+        const result = spawnSync('gh', ['auth', 'status'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        return result.status === 0;
     } catch {
         return false;
     }
