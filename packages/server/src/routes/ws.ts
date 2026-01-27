@@ -37,7 +37,7 @@ export class WebSocketHub {
         const claudeInstances = db.getClaudeInstances({ status: 'running' });
 
         // Include task groups with tasks for all specs
-        const taskGroupsBySpec: Record<string, any[]> = {};
+        const taskGroupsBySpec: Record<string, unknown[]> = {};
         for (const spec of specs) {
             const taskGroups = db.getTaskGroupsForSpec(spec.id);
             // For each task group, fetch its tasks

@@ -1,7 +1,7 @@
 import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
-import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, COORDINATOR_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
+import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
@@ -528,9 +528,10 @@ ${spec.content}
             const { execSync } = await import('child_process');
             execSync('npm run lint', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
             result.lint = { passed: true };
-        } catch (error: any) {
+        } catch (error: unknown) {
             result.success = false;
-            const errorOutput = error.stdout?.toString() || error.stderr?.toString() || error.message;
+            const err = error as { stdout?: Buffer; stderr?: Buffer; message?: string };
+            const errorOutput = err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
             result.lint = {
                 passed: false,
                 errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
@@ -545,9 +546,10 @@ ${spec.content}
                 const { execSync } = await import('child_process');
                 execSync('npm run build', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
                 result.build = { passed: true };
-            } catch (error: any) {
+            } catch (error: unknown) {
                 result.success = false;
-                const errorOutput = error.stdout?.toString() || error.stderr?.toString() || error.message;
+                const err = error as { stdout?: Buffer; stderr?: Buffer; message?: string };
+                const errorOutput = err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
                 result.build = {
                     passed: false,
                     errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
@@ -803,7 +805,7 @@ Please resolve conflicts manually in worktree "${spec.worktree_name}".
 
     private isCoordinatorIdle(spec: Spec): boolean {
         // Find coordinator instance for this spec
-        for (const [id, instance] of this.instances) {
+        for (const [id, _instance] of this.instances) {
             const record = this.db.getClaudeInstance(id);
             if (record?.role === 'coordinator' && record.context_id === spec.id) {
                 // Check if instance has been idle for at least 60 seconds
