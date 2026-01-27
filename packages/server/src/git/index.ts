@@ -266,12 +266,22 @@ export class GitManager {
         // the PR. To preserve full commit history, repository administrators should
         // configure the repo to allow/default to "merge commits" rather than "squash and merge".
         return new Promise((resolve, reject) => {
+            // Explicitly pass environment variables to spawned process.
+            // GH_TOKEN is required for GitHub CLI authentication (from process.env or gh config).
+            // HOME is required so gh CLI can find its config at ~/.config/gh/
             const gh = spawn('gh', [
                 'pr', 'create',
                 '--title', title,
                 '--body', body,
                 '--json', 'url,number'
-            ], { cwd: wtPath });
+            ], {
+                cwd: wtPath,
+                env: {
+                    ...process.env,
+                    GH_TOKEN: process.env.GH_TOKEN || '',
+                    HOME: process.env.HOME || '/home/devswarm'
+                }
+            });
 
             let stdout = '';
             let stderr = '';
