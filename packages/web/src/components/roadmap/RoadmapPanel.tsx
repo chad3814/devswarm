@@ -24,6 +24,21 @@ const getStatusIcon = (status: string): string => {
     }
 };
 
+const getResolutionDescription = (method: string | undefined): string => {
+    switch (method) {
+        case 'merge_and_push':
+            return 'Automatically merge to main and push when complete';
+        case 'create_pr':
+            return 'Create a pull request for review when complete';
+        case 'push_branch':
+            return 'Push the branch without merging when complete';
+        case 'manual':
+            return 'Main Claude will handle completion manually';
+        default:
+            return 'Automatically merge to main and push when complete';
+    }
+};
+
 function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, setLoadingSpecs }: {
     item: RoadmapItem;
     specCache: Record<string, Spec>;
@@ -32,6 +47,17 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
     setLoadingSpecs: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+
+    const handleResolutionChange = async (itemId: string, newMethod: string) => {
+        try {
+            await api.updateRoadmapItem(itemId, {
+                resolution_method: newMethod as 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual'
+            });
+            // The WebSocket broadcast will update the store automatically
+        } catch (e) {
+            console.error('Failed to update resolution method:', e);
+        }
+    };
 
     const toggleExpand = async () => {
         if (isExpanded) {
@@ -156,6 +182,28 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
                     {item.description && (
                         <p className="text-sm text-gray-300 whitespace-pre-wrap">{item.description}</p>
                     )}
+
+                    {/* Resolution Method Editor */}
+                    {item.status !== 'done' && (
+                        <div>
+                            <label className="block text-xs text-gray-400 mb-1">Resolution Method</label>
+                            <select
+                                value={item.resolution_method || 'merge_and_push'}
+                                onChange={(e) => handleResolutionChange(item.id, e.target.value)}
+                                className="w-full bg-gray-700 rounded px-3 py-1.5 text-sm"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <option value="merge_and_push">🔀 Merge and Push (Recommended)</option>
+                                <option value="create_pr">🔃 Create Pull Request</option>
+                                <option value="push_branch">📤 Push Branch Only</option>
+                                <option value="manual">✋ Manual</option>
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getResolutionDescription(item.resolution_method)}
+                            </p>
+                        </div>
+                    )}
+
                     {renderTaskProgress()}
                 </div>
             )}
