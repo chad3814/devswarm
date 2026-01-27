@@ -490,12 +490,13 @@ async function tailLogs(repoArg: string): Promise<void> {
     });
 }
 
-async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean } = {}): Promise<void> {
+async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
 
     const tag = options.tag || DEFAULT_TAG;
-    const forcePull = options.pull || false;
+    // Default to pulling unless --skip-pull is provided
+    const forcePull = !options.skipPull;
 
     const { port, containerId } = await startContainer(info, tag, forcePull);
 
@@ -580,9 +581,10 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
 
 program
     .command('start <repo>')
-    .description('Start or attach to an orchestrator for a repository')
+    .description('Start or attach to an orchestrator for a repository (pulls latest image by default)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting')
+    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
+    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
     .action(startOrAttach);
 
 program
@@ -625,7 +627,8 @@ program
 program
     .argument('[repo]', 'Repository to orchestrate (owner/repo or full URL)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting')
+    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
+    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
     .action(async (repo, options) => {
         if (repo) {
             await startOrAttach(repo, options);
