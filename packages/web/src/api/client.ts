@@ -1,5 +1,10 @@
 const BASE_URL = '';
 
+export interface RepositoryInfo {
+    owner: string;
+    name: string;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const headers: Record<string, string> = {
         ...(options?.headers as Record<string, string>),
@@ -23,6 +28,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+    // Repository
+    getRepository: () => request<RepositoryInfo>('/api/repository'),
+
     // Auth
     getAuthStatus: () => request<{ github: boolean; claude: boolean; ready: boolean }>('/api/auth/status'),
 

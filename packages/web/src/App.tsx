@@ -11,12 +11,16 @@ import { QuestionModal } from './components/questions/QuestionModal';
 import { StatusBar } from './components/controls/StatusBar';
 
 export function App() {
-    const { authStatus, setAuthStatus, selectedClaudeId, claudeInstances, pendingQuestions } = useStore();
+    const { authStatus, setAuthStatus, repositoryInfo, setRepositoryInfo, selectedClaudeId, claudeInstances, pendingQuestions } = useStore();
     const { shutdown } = useWebSocket();
 
     useEffect(() => {
         api.getAuthStatus().then(setAuthStatus).catch(console.error);
     }, [setAuthStatus]);
+
+    useEffect(() => {
+        api.getRepository().then(setRepositoryInfo).catch(console.error);
+    }, [setRepositoryInfo]);
 
     // When auth is ready, trigger the orchestrator initialization
     useEffect(() => {
@@ -43,6 +47,11 @@ export function App() {
         <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
             <header className="bg-gray-800 border-b border-gray-700 px-4 py-3 flex items-center justify-between">
                 <h1 className="text-xl font-bold">/dev/swarm</h1>
+                {repositoryInfo && (
+                    <div className="absolute left-1/2 transform -translate-x-1/2 text-sm text-gray-400">
+                        {repositoryInfo.owner}/{repositoryInfo.name}
+                    </div>
+                )}
                 <button
                     onClick={() => {
                         if (confirm('Are you sure you want to shut down? All work will be saved.')) {
