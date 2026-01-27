@@ -39,7 +39,7 @@ export function ClaudePanel({ instanceId, title }: ClaudePanelProps) {
         termRef.current = term;
 
         const unsubscribe = subscribeToClaude(instanceId, (data) => {
-            term.write(data);
+            term.write(data.text);
         });
 
         const resizeObserver = new ResizeObserver(() => {

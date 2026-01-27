@@ -6,7 +6,7 @@ interface MainClaudeChatProps {
 }
 
 export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
-    const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string }[]>([]);
+    const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string; messageId?: string }[]>([]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const { subscribeToClaude, sendToMain } = useWebSocket();
@@ -15,10 +15,29 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
         const unsubscribe = subscribeToClaude(instanceId, (data) => {
             setMessages((prev) => {
                 const last = prev[prev.length - 1];
-                if (last?.role === 'claude') {
-                    return [...prev.slice(0, -1), { ...last, content: last.content + '\n\n' + data }];
+
+                // If continuing the same message, append without extra spacing
+                if (last?.role === 'claude' &&
+                    last.messageId === data.messageId &&
+                    data.messageType === 'continue') {
+                    return [
+                        ...prev.slice(0, -1),
+                        {
+                            ...last,
+                            content: last.content + data.text
+                        }
+                    ];
                 }
-                return [...prev, { role: 'claude', content: data }];
+
+                // New message
+                return [
+                    ...prev,
+                    {
+                        role: 'claude',
+                        content: data.text,
+                        messageId: data.messageId
+                    }
+                ];
             });
         });
 

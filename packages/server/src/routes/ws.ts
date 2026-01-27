@@ -46,12 +46,25 @@ export class WebSocketHub {
         });
     }
 
-    broadcastClaudeOutput(instanceId: string, data: string): void {
-        const message = JSON.stringify({
-            type: 'claude_output',
-            instanceId,
-            data,
-        });
+    broadcastClaudeOutput(instanceId: string, data: string | { text: string; messageType: string; messageId: string }): void {
+        // Support both legacy string format and new metadata format
+        const payload = typeof data === 'string'
+            ? {
+                type: 'claude_output',
+                instanceId,
+                data,
+                messageType: 'continue', // Default for backwards compatibility
+                messageId: `legacy-${Date.now()}`,
+              }
+            : {
+                type: 'claude_output',
+                instanceId,
+                data: data.text,
+                messageType: data.messageType,
+                messageId: data.messageId,
+              };
+
+        const message = JSON.stringify(payload);
 
         let sentCount = 0;
         for (const client of this.clients) {
