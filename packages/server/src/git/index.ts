@@ -272,8 +272,8 @@ export class GitManager {
             const gh = spawn('gh', [
                 'pr', 'create',
                 '--title', title,
-                '--body', body,
-                '--json', 'url,number'
+                '--body', body
+                // No --json flag - gh pr create outputs URL as plain text
             ], {
                 cwd: wtPath,
                 env: {
@@ -297,7 +297,19 @@ export class GitManager {
             gh.on('close', (code) => {
                 if (code === 0) {
                     try {
-                        resolve(JSON.parse(stdout));
+                        // gh pr create outputs the URL as plain text (e.g., "https://github.com/owner/repo/pull/42\n")
+                        const url = stdout.trim();
+
+                        // Extract PR number from URL
+                        // URL format: https://github.com/owner/repo/pull/42
+                        const match = url.match(/\/pull\/(\d+)$/);
+                        if (!match) {
+                            reject(new Error(`Failed to extract PR number from URL: ${url}`));
+                            return;
+                        }
+
+                        const number = parseInt(match[1], 10);
+                        resolve({ url, number });
                     } catch (error) {
                         reject(new Error(`Failed to parse gh output: ${error}`));
                     }
