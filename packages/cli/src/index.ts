@@ -527,7 +527,7 @@ async function tailLogs(repoArg: string): Promise<void> {
     });
 }
 
-async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean } = {}): Promise<void> {
+async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
 
@@ -537,20 +537,30 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
 
     const { port, containerId } = await startContainer(info, tag, forcePull);
 
-    followLogs(containerId, () => {
-        console.log(`\nOpening http://localhost:${port}`);
-        open(`http://localhost:${port}`);
-    });
+    if (options.attach) {
+        // Attached mode: follow logs, open browser, block terminal
+        followLogs(containerId, () => {
+            console.log(`\nOpening http://localhost:${port}`);
+            open(`http://localhost:${port}`);
+        });
 
-    process.on('SIGINT', async () => {
-        console.log('\nInitiating graceful shutdown...');
-        try {
-            await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
-        } catch {
-            // Server may already be down
-        }
-        process.exit(0);
-    });
+        process.on('SIGINT', async () => {
+            console.log('\nInitiating graceful shutdown...');
+            try {
+                await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
+            } catch {
+                // Server may already be down
+            }
+            process.exit(0);
+        });
+    } else {
+        // Detached mode: print info and return
+        console.log(`\n✓ Container started successfully`);
+        console.log(`  Dashboard: http://localhost:${port}`);
+        console.log(`  Container ID: ${containerId.substring(0, 12)}`);
+        console.log(`\nTo view logs: devswarm logs ${info.owner}/${info.repo}`);
+        console.log(`To stop: devswarm stop ${info.owner}/${info.repo}`);
+    }
 }
 
 async function showAuthStatus(): Promise<void> {
@@ -620,6 +630,7 @@ program
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
     .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
     .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
+    .option('--attach', 'Follow logs and open browser (stays in foreground)')
     .action(startOrAttach);
 
 program
@@ -664,6 +675,7 @@ program
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
     .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
     .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
+    .option('--attach', 'Follow logs and open browser (stays in foreground)')
     .action(async (repo, options) => {
         if (repo) {
             await startOrAttach(repo, options);
