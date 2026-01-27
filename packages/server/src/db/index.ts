@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS auth_state (
 );
 
 CREATE INDEX IF NOT EXISTS idx_roadmap_status ON roadmap_items(status);
+CREATE INDEX IF NOT EXISTS idx_roadmap_github_issue ON roadmap_items(github_issue_id);
 CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
 CREATE INDEX IF NOT EXISTS idx_task_groups_spec ON task_groups(spec_id);
 CREATE INDEX IF NOT EXISTS idx_task_groups_spec_status ON task_groups(spec_id, status);
