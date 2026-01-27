@@ -112,7 +112,7 @@ export class Orchestrator {
 
         // Set up event handlers
         this.mainClaude.on('output', (data) => {
-            console.log(`[Orchestrator] Main claude output (${data.length} chars)`);
+            console.log(`[Orchestrator] Main claude output (${data.text.length} chars)`);
             this.wsHub.broadcastClaudeOutput('main', data, 'main', 'main');
         });
 
