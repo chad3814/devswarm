@@ -57,12 +57,33 @@ export class GitManager {
         const wtPath = path.join(this.worktreesPath, name);
         const branchName = name === 'main' ? 'main' : `devswarm/${name}`;
 
+        // Check if worktree already exists
+        const existingWorktrees = await this.listWorktrees();
+        if (existingWorktrees.includes(name)) {
+            // Verify it's in good state
+            if (await this.worktreeIsValid(wtPath)) {
+                console.log(`[GitManager] Worktree ${name} already exists, reusing`);
+                return wtPath;
+            } else {
+                console.log(`[GitManager] Worktree ${name} exists but is invalid, removing`);
+                await this.removeWorktree(name);
+            }
+        }
+
+        // Check if branch exists without worktree (stale branch)
+        if (name !== 'main' && await this.branchExists(branchName)) {
+            console.log(`[GitManager] Branch ${branchName} exists without worktree, removing branch`);
+            await this.git(`branch -D ${branchName}`);
+        }
+
+        // Create new worktree
         if (name === 'main') {
             await this.git(`worktree add ${wtPath} ${baseBranch}`);
         } else {
             await this.git(`worktree add -b ${branchName} ${wtPath} ${baseBranch}`);
         }
 
+        console.log(`[GitManager] Created new worktree ${name}`);
         return wtPath;
     }
 
@@ -203,6 +224,29 @@ export class GitManager {
         }
 
         return worktrees;
+    }
+
+    private async worktreeIsValid(wtPath: string): Promise<boolean> {
+        try {
+            // Check if directory exists
+            if (!fs.existsSync(wtPath)) {
+                return false;
+            }
+            // Check if it's a valid git worktree
+            await this.git('rev-parse --is-inside-work-tree', wtPath);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async branchExists(branchName: string): Promise<boolean> {
+        try {
+            await this.git(`rev-parse --verify ${branchName}`);
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     async createPullRequest(

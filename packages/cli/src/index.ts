@@ -6,12 +6,49 @@ import open from 'open';
 import { program } from 'commander';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { execSync, spawn } from 'child_process';
 import * as readline from 'readline';
+import { fileURLToPath } from 'url';
 
 const docker = new Docker();
-const DEFAULT_TAG = 'dev';
+
+/**
+ * Read the package version from package.json
+ */
+function getPackageVersion(): string {
+    try {
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = dirname(__filename);
+        const pkgPath = join(__dirname, '../package.json');
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+        return pkg.version;
+    } catch (error) {
+        console.warn('Failed to read package version, defaulting to dev tag');
+        return 'unknown';
+    }
+}
+
+/**
+ * Determine the default Docker image tag based on the CLI version
+ * - Development versions (containing '-dev.') use 'dev' tag
+ * - Release versions use 'latest' tag
+ * - Unknown/malformed versions default to 'dev' for safety
+ */
+function getDefaultTag(version: string): 'dev' | 'latest' {
+    // If version detection failed, use dev tag as safe fallback
+    if (version === 'unknown') {
+        return 'dev';
+    }
+
+    if (version.includes('-dev.')) {
+        return 'dev';
+    }
+    return 'latest';
+}
+
+const VERSION = getPackageVersion();
+const DEFAULT_TAG = getDefaultTag(VERSION);
 const IMAGE_REPO = 'ghcr.io/chad3814/devswarm';
 const PORT_RANGE_START = 3814;
 
@@ -490,29 +527,40 @@ async function tailLogs(repoArg: string): Promise<void> {
     });
 }
 
-async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean } = {}): Promise<void> {
+async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
 
     const tag = options.tag || DEFAULT_TAG;
-    const forcePull = options.pull || false;
+    // Default to pulling unless --skip-pull is provided
+    const forcePull = !options.skipPull;
 
     const { port, containerId } = await startContainer(info, tag, forcePull);
 
-    followLogs(containerId, () => {
-        console.log(`\nOpening http://localhost:${port}`);
-        open(`http://localhost:${port}`);
-    });
+    if (options.attach) {
+        // Attached mode: follow logs, open browser, block terminal
+        followLogs(containerId, () => {
+            console.log(`\nOpening http://localhost:${port}`);
+            open(`http://localhost:${port}`);
+        });
 
-    process.on('SIGINT', async () => {
-        console.log('\nInitiating graceful shutdown...');
-        try {
-            await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
-        } catch {
-            // Server may already be down
-        }
-        process.exit(0);
-    });
+        process.on('SIGINT', async () => {
+            console.log('\nInitiating graceful shutdown...');
+            try {
+                await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
+            } catch {
+                // Server may already be down
+            }
+            process.exit(0);
+        });
+    } else {
+        // Detached mode: print info and return
+        console.log(`\n✓ Container started successfully`);
+        console.log(`  Dashboard: http://localhost:${port}`);
+        console.log(`  Container ID: ${containerId.substring(0, 12)}`);
+        console.log(`\nTo view logs: devswarm logs ${info.owner}/${info.repo}`);
+        console.log(`To stop: devswarm stop ${info.owner}/${info.repo}`);
+    }
 }
 
 async function showAuthStatus(): Promise<void> {
@@ -548,8 +596,6 @@ async function clearAuth(): Promise<void> {
     }
 }
 
-const VERSION = '0.1.0';
-
 // Custom version display
 const originalVersion = program.version.bind(program);
 program.version(VERSION, '-v, --version', 'Display version information');
@@ -580,9 +626,11 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
 
 program
     .command('start <repo>')
-    .description('Start or attach to an orchestrator for a repository')
+    .description('Start or attach to an orchestrator for a repository (pulls latest image by default)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting')
+    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
+    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
+    .option('--attach', 'Follow logs and open browser (stays in foreground)')
     .action(startOrAttach);
 
 program
@@ -625,7 +673,9 @@ program
 program
     .argument('[repo]', 'Repository to orchestrate (owner/repo or full URL)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting')
+    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
+    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
+    .option('--attach', 'Follow logs and open browser (stays in foreground)')
     .action(async (repo, options) => {
         if (repo) {
             await startOrAttach(repo, options);

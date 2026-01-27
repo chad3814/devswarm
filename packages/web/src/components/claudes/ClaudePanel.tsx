@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useStore } from '../../stores/store';
 import '@xterm/xterm/css/xterm.css';
 
 interface ClaudePanelProps {
@@ -12,7 +13,9 @@ interface ClaudePanelProps {
 export function ClaudePanel({ instanceId, title }: ClaudePanelProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<Terminal | null>(null);
+    const loadedMessagesRef = useRef<Set<string>>(new Set());
     const { subscribeToClaude } = useWebSocket();
+    const { getInstanceMessages } = useStore();
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -38,8 +41,30 @@ export function ClaudePanel({ instanceId, title }: ClaudePanelProps) {
 
         termRef.current = term;
 
+        // Load historical messages from store
+        const messages = getInstanceMessages(instanceId);
+        const isTruncated = instanceId !== 'main' && messages.length === 10;
+
+        if (isTruncated) {
+            term.writeln('\x1b[33m[Message history truncated - showing last 10 messages]\x1b[0m\r');
+            term.writeln('');
+        }
+
+        // Write historical messages
+        for (const msg of messages) {
+            if (!loadedMessagesRef.current.has(msg.messageId)) {
+                term.write(msg.data);
+                loadedMessagesRef.current.add(msg.messageId);
+            }
+        }
+
         const unsubscribe = subscribeToClaude(instanceId, (data) => {
-            term.write(data);
+            // Only write if we haven't seen this message ID yet
+            // (prevents duplicates when switching between instances)
+            if (!loadedMessagesRef.current.has(data.messageId)) {
+                term.write(data.text);
+                loadedMessagesRef.current.add(data.messageId);
+            }
         });
 
         const resizeObserver = new ResizeObserver(() => {
@@ -52,7 +77,7 @@ export function ClaudePanel({ instanceId, title }: ClaudePanelProps) {
             resizeObserver.disconnect();
             term.dispose();
         };
-    }, [instanceId, subscribeToClaude]);
+    }, [instanceId, subscribeToClaude, getInstanceMessages]);
 
     return (
         <div className="flex flex-col h-full">

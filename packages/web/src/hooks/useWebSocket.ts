@@ -1,12 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useStore, RoadmapItem, Spec, ClaudeInstance, Question } from '../stores/store';
+import { useStore, RoadmapItem, Spec, ClaudeInstance, Question, ClaudeMessage } from '../stores/store';
 
 type ServerMessage =
     | { type: 'state'; payload: { roadmapItems: RoadmapItem[]; specs: Spec[]; claudeInstances: ClaudeInstance[] } }
     | { type: 'roadmap_update'; item: RoadmapItem }
     | { type: 'spec_update'; spec: Spec }
     | { type: 'claude_update'; instance: ClaudeInstance }
-    | { type: 'claude_output'; instanceId: string; data: string }
+    | { type: 'claude_output'; instanceId: string; role: string; worktree: string | null; data: string; messageType: 'new' | 'continue'; messageId: string; timestamp: number }
     | { type: 'question'; question: Question }
     | { type: 'shutdown_progress'; stage: string };
 
@@ -17,9 +17,15 @@ type ClientMessage =
     | { type: 'send_to_main'; message: string }
     | { type: 'shutdown' };
 
+export interface ClaudeOutputData {
+    text: string;
+    messageType: 'new' | 'continue';
+    messageId: string;
+}
+
 export function useWebSocket() {
     const wsRef = useRef<WebSocket | null>(null);
-    const outputCallbacksRef = useRef<Map<string, (data: string) => void>>(new Map());
+    const outputCallbacksRef = useRef<Map<string, (data: ClaudeOutputData) => void>>(new Map());
     const pendingMessagesRef = useRef<ClientMessage[]>([]);
 
     const {
@@ -30,6 +36,7 @@ export function useWebSocket() {
         setClaudeInstances,
         updateClaudeInstance,
         addQuestion,
+        addClaudeMessage,
     } = useStore();
 
     useEffect(() => {
@@ -71,11 +78,29 @@ export function useWebSocket() {
                     break;
 
                 case 'claude_output': {
-                    console.log(`[WS] Received claude_output for ${msg.instanceId} (${msg.data.length} chars)`);
+                    console.log(`[WS] Received claude_output for ${msg.instanceId} (${msg.data.length} chars, type: ${msg.messageType}, id: ${msg.messageId})`);
+
+                    // Store message in Zustand store
+                    const claudeMessage: ClaudeMessage = {
+                        instanceId: msg.instanceId,
+                        role: msg.role,
+                        worktree: msg.worktree,
+                        data: msg.data,
+                        messageType: msg.messageType,
+                        messageId: msg.messageId,
+                        timestamp: msg.timestamp,
+                    };
+                    addClaudeMessage(claudeMessage);
+
+                    // Also invoke callback if one is registered (for backwards compatibility)
                     const callback = outputCallbacksRef.current.get(msg.instanceId);
                     if (callback) {
                         console.log('[WS] Found callback, invoking');
-                        callback(msg.data);
+                        callback({
+                            text: msg.data,
+                            messageType: msg.messageType,
+                            messageId: msg.messageId,
+                        });
                     } else {
                         console.log('[WS] No callback registered for this instance');
                     }
@@ -103,7 +128,7 @@ export function useWebSocket() {
         return () => {
             ws.close();
         };
-    }, [setRoadmapItems, updateRoadmapItem, setSpecs, updateSpec, setClaudeInstances, updateClaudeInstance, addQuestion]);
+    }, [setRoadmapItems, updateRoadmapItem, setSpecs, updateSpec, setClaudeInstances, updateClaudeInstance, addQuestion, addClaudeMessage]);
 
     const send = useCallback((msg: ClientMessage) => {
         const state = wsRef.current?.readyState;
@@ -119,7 +144,7 @@ export function useWebSocket() {
     }, []);
 
     const subscribeToClaude = useCallback(
-        (instanceId: string, onData: (data: string) => void) => {
+        (instanceId: string, onData: (data: ClaudeOutputData) => void) => {
             console.log(`[WS] subscribeToClaude called for: ${instanceId}`);
             outputCallbacksRef.current.set(instanceId, onData);
             send({ type: 'subscribe_claude', instanceId });

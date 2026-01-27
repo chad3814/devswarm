@@ -41,6 +41,7 @@ export class ClaudeInstance extends EventEmitter {
     private buffer = '';
     private completionPollingTimer?: NodeJS.Timeout;
     private maxRuntimeTimer?: NodeJS.Timeout;
+    private currentMessageId?: string;
 
     constructor(private options: ClaudeInstanceOptions) {
         super();
@@ -103,6 +104,8 @@ export class ClaudeInstance extends EventEmitter {
         });
 
         this.buffer = '';
+        // Reset message ID for new conversation turn
+        this.currentMessageId = undefined;
 
         this.process.stdout?.on('data', (chunk: Buffer) => {
             this.buffer += chunk.toString();
@@ -201,9 +204,18 @@ export class ClaudeInstance extends EventEmitter {
 
         // Emit assistant text blocks
         if (msg.type === 'assistant' && msg.message?.content) {
+            // Generate message ID for new assistant message if not already set
+            if (!this.currentMessageId) {
+                this.currentMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            }
+
             for (const block of msg.message.content) {
                 if (block.type === 'text' && block.text) {
-                    this.emit('output', block.text);
+                    this.emit('output', {
+                        text: block.text,
+                        messageType: 'continue',
+                        messageId: this.currentMessageId,
+                    });
                     this.checkForPatterns(block.text);
                 }
             }
@@ -211,7 +223,13 @@ export class ClaudeInstance extends EventEmitter {
 
         // Emit final result
         if (msg.type === 'result' && msg.result) {
-            this.emit('output', msg.result);
+            // Reset message ID for new result message
+            this.currentMessageId = undefined;
+            this.emit('output', {
+                text: msg.result,
+                messageType: 'new',
+                messageId: `result-${Date.now()}`,
+            });
         }
     }
 
@@ -327,14 +345,22 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     private startMaxRuntimeTimer(): void {
-        const maxRuntime = this.options.maxRuntime || 2 * 60 * 60 * 1000; // Default 2 hours
+        const maxRuntime = this.options.maxRuntime !== undefined
+            ? this.options.maxRuntime
+            : 2 * 60 * 60 * 1000; // Default 2 hours (backward compatibility)
+
+        // If maxRuntime is explicitly undefined or 0, don't set a timer (infinite runtime)
+        if (maxRuntime === undefined || maxRuntime === 0) {
+            console.log(`[Claude ${this.id}] No max runtime limit set (infinite)`);
+            return;
+        }
 
         this.maxRuntimeTimer = setTimeout(() => {
             console.error(`[Claude ${this.id}] Maximum runtime exceeded (${maxRuntime}ms), forcing exit`);
             this.handleTimeout();
         }, maxRuntime);
 
-        console.log(`[Claude ${this.id}] Started max runtime timer (${maxRuntime}ms)`);
+        console.log(`[Claude ${this.id}] Started max runtime timer (${maxRuntime}ms = ${Math.floor(maxRuntime / 60000)} minutes)`);
     }
 
     private handleTimeout(): void {

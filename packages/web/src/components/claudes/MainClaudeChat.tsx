@@ -1,24 +1,60 @@
 import { useState, useEffect, useRef } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useStore } from '../../stores/store';
 
 interface MainClaudeChatProps {
     instanceId: string;
 }
 
 export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
-    const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string }[]>([]);
+    const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string; messageId?: string }[]>([]);
     const [input, setInput] = useState('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const loadedRef = useRef(false);
     const { subscribeToClaude, sendToMain } = useWebSocket();
+    const { getInstanceMessages } = useStore();
+
+    // Load historical messages on mount
+    useEffect(() => {
+        if (!loadedRef.current) {
+            const historicalMessages = getInstanceMessages(instanceId);
+            const claudeMessages = historicalMessages.map(msg => ({
+                role: 'claude' as const,
+                content: msg.data,
+                messageId: msg.messageId
+            }));
+            setMessages(claudeMessages);
+            loadedRef.current = true;
+        }
+    }, [instanceId, getInstanceMessages]);
 
     useEffect(() => {
         const unsubscribe = subscribeToClaude(instanceId, (data) => {
             setMessages((prev) => {
                 const last = prev[prev.length - 1];
-                if (last?.role === 'claude') {
-                    return [...prev.slice(0, -1), { ...last, content: last.content + '\n\n' + data }];
+
+                // If continuing the same message, append without extra spacing
+                if (last?.role === 'claude' &&
+                    last.messageId === data.messageId &&
+                    data.messageType === 'continue') {
+                    return [
+                        ...prev.slice(0, -1),
+                        {
+                            ...last,
+                            content: last.content + data.text
+                        }
+                    ];
                 }
-                return [...prev, { role: 'claude', content: data }];
+
+                // New message
+                return [
+                    ...prev,
+                    {
+                        role: 'claude',
+                        content: data.text,
+                        messageId: data.messageId
+                    }
+                ];
             });
         });
 

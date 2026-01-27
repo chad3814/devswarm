@@ -4,7 +4,7 @@ import { api } from './api/client';
 import { useWebSocket } from './hooks/useWebSocket';
 import { AuthGate } from './components/AuthGate';
 import { RoadmapPanel } from './components/roadmap/RoadmapPanel';
-import { ClaudeList } from './components/claudes/ClaudeList';
+import { ClaudeSelector } from './components/claudes/ClaudeSelector';
 import { ClaudePanel } from './components/claudes/ClaudePanel';
 import { MainClaudeChat } from './components/claudes/MainClaudeChat';
 import { QuestionModal } from './components/questions/QuestionModal';
@@ -38,7 +38,6 @@ export function App() {
     }
 
     const selectedClaude = claudeInstances.find((c) => c.id === selectedClaudeId);
-    const mainClaude = claudeInstances.find((c) => c.role === 'main');
 
     return (
         <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
@@ -62,28 +61,24 @@ export function App() {
                     <RoadmapPanel />
                 </div>
 
-                {/* Middle: Claude instances */}
-                <div className="w-1/3 border-r border-gray-700 flex flex-col">
-                    <ClaudeList />
-                    {selectedClaude && (
-                        <div className="flex-1 min-h-0">
+                {/* Right: Unified Claude column with selector */}
+                <div className="w-2/3 flex flex-col">
+                    <ClaudeSelector />
+
+                    <div className="flex-1 min-h-0">
+                        {selectedClaude?.role === 'main' ? (
+                            <MainClaudeChat instanceId={selectedClaude.id} />
+                        ) : selectedClaude ? (
                             <ClaudePanel
                                 instanceId={selectedClaude.id}
                                 title={`${selectedClaude.role} - ${selectedClaude.id.slice(0, 8)}`}
                             />
-                        </div>
-                    )}
-                </div>
-
-                {/* Right: Main claude chat */}
-                <div className="w-1/3 flex flex-col">
-                    {mainClaude ? (
-                        <MainClaudeChat instanceId={mainClaude.id} />
-                    ) : (
-                        <div className="flex items-center justify-center h-full text-gray-500">
-                            Main Claude not running
-                        </div>
-                    )}
+                        ) : (
+                            <div className="flex items-center justify-center h-full text-gray-500">
+                                No Claude instances running
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

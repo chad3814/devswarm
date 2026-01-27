@@ -63,8 +63,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return app.db.getRoadmapItems();
     });
 
-    app.post('/api/roadmap', async (request: FastifyRequest<{ Body: { title: string; description: string } }>) => {
-        const { title, description } = request.body;
+    app.post('/api/roadmap', async (request: FastifyRequest<{ Body: { title: string; description: string; resolution_method?: string } }>) => {
+        const { title, description, resolution_method = 'merge_and_push' } = request.body;
 
         const item = app.db.createRoadmapItem({
             github_issue_id: null,
@@ -74,6 +74,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             description,
             status: 'pending',
             spec_id: null,
+            resolution_method: resolution_method as 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual',
         });
 
         app.wsHub.broadcastRoadmapUpdate(item);
@@ -81,7 +82,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return item;
     });
 
-    app.patch('/api/roadmap/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ title: string; description: string; status: string }> }>) => {
+    app.patch('/api/roadmap/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ title: string; description: string; status: string; resolution_method: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual' }> }>) => {
         const { id } = request.params;
         const updates = request.body;
 
@@ -91,6 +92,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.wsHub.broadcastRoadmapUpdate(item!);
 
         return item;
+    });
+
+    app.get('/api/roadmap/:id/tasks', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+        const { id } = request.params;
+
+        // Get the roadmap item to find associated spec
+        const roadmapItem = app.db.getRoadmapItem(id);
+        if (!roadmapItem) {
+            throw { statusCode: 404, message: 'Roadmap item not found' };
+        }
+
+        // If no spec exists, return empty task groups
+        if (!roadmapItem.spec_id) {
+            return { taskGroups: [] };
+        }
+
+        // Get task groups for the spec
+        const taskGroups = app.db.getTaskGroupsForSpec(roadmapItem.spec_id);
+
+        // Get tasks for each task group
+        const taskGroupsWithTasks = taskGroups.map((tg) => ({
+            ...tg,
+            tasks: app.db.getTasksForGroup(tg.id),
+        }));
+
+        return { taskGroups: taskGroupsWithTasks };
     });
 
     // Specs routes

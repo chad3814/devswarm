@@ -7,6 +7,7 @@ export interface RoadmapItem {
     status: string;
     github_issue_url?: string;
     spec_id?: string;
+    resolution_method?: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual';
 }
 
 export interface Spec {
@@ -46,6 +47,20 @@ export interface Question {
     status: 'pending' | 'answered';
 }
 
+export interface ClaudeMessage {
+    instanceId: string;
+    role: string;
+    worktree: string | null;
+    data: string;
+    messageType: string;
+    messageId: string;
+    timestamp: number;
+}
+
+export interface InstanceMessages {
+    [instanceId: string]: ClaudeMessage[];
+}
+
 interface AuthStatus {
     github: boolean;
     claude: boolean;
@@ -61,6 +76,7 @@ interface OrchestratorState {
     specs: Spec[];
     claudeInstances: ClaudeInstance[];
     pendingQuestions: Question[];
+    instanceMessages: InstanceMessages;
 
     // UI
     selectedClaudeId: string | null;
@@ -79,14 +95,19 @@ interface OrchestratorState {
     removeQuestion: (id: string) => void;
     selectClaude: (id: string | null) => void;
     setShowShutdownConfirm: (show: boolean) => void;
+    addClaudeMessage: (message: ClaudeMessage) => void;
+    getInstanceMessages: (instanceId: string) => ClaudeMessage[];
 }
 
-export const useStore = create<OrchestratorState>((set) => ({
+const MAX_MESSAGES_NON_MAIN = 10;
+
+export const useStore = create<OrchestratorState>((set, get) => ({
     authStatus: null,
     roadmapItems: [],
     specs: [],
     claudeInstances: [],
     pendingQuestions: [],
+    instanceMessages: {},
     selectedClaudeId: null,
     showShutdownConfirm: false,
 
@@ -133,4 +154,29 @@ export const useStore = create<OrchestratorState>((set) => ({
     selectClaude: (selectedClaudeId) => set({ selectedClaudeId }),
 
     setShowShutdownConfirm: (showShutdownConfirm) => set({ showShutdownConfirm }),
+
+    addClaudeMessage: (message) =>
+        set((state) => {
+            const { instanceId } = message;
+            const currentMessages = state.instanceMessages[instanceId] || [];
+            const newMessages = [...currentMessages, message];
+
+            // Prune messages for non-main instances
+            // Main instance (id === 'main') keeps all messages
+            const prunedMessages =
+                instanceId === 'main'
+                    ? newMessages
+                    : newMessages.slice(-MAX_MESSAGES_NON_MAIN);
+
+            return {
+                instanceMessages: {
+                    ...state.instanceMessages,
+                    [instanceId]: prunedMessages,
+                },
+            };
+        }),
+
+    getInstanceMessages: (instanceId) => {
+        return get().instanceMessages[instanceId] || [];
+    },
 }));

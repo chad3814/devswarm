@@ -41,10 +41,10 @@ export const api = {
     // Roadmap
     getRoadmapItems: () => request<unknown[]>('/api/roadmap'),
 
-    createRoadmapItem: (title: string, description: string) =>
+    createRoadmapItem: (title: string, description: string, resolution_method: string = 'merge_and_push') =>
         request<unknown>('/api/roadmap', {
             method: 'POST',
-            body: JSON.stringify({ title, description }),
+            body: JSON.stringify({ title, description, resolution_method }),
         }),
 
     updateRoadmapItem: (id: string, updates: { title?: string; description?: string; status?: string }) =>
@@ -52,6 +52,8 @@ export const api = {
             method: 'PATCH',
             body: JSON.stringify(updates),
         }),
+
+    getRoadmapItemTasks: (id: string) => request<unknown>(`/api/roadmap/${id}/tasks`),
 
     // Specs
     getSpecs: () => request<unknown[]>('/api/specs'),
