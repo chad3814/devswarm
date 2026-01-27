@@ -1,4 +1,4 @@
-import { execSync } from 'child_process';
+import { spawnSync } from 'child_process';
 
 export interface GitHubRepoInfo {
     owner: string;
@@ -16,10 +16,12 @@ export interface GitHubRepoInfo {
  */
 export function getGitHubRepoInfo(workingDir?: string): GitHubRepoInfo | null {
     try {
-        const options = workingDir ? { cwd: workingDir } : {};
-        const remoteUrl = execSync('git remote get-url origin', options)
-            .toString()
-            .trim();
+        const options = workingDir ? { cwd: workingDir, encoding: 'utf-8' as const } : { encoding: 'utf-8' as const };
+        const result = spawnSync('git', ['remote', 'get-url', 'origin'], options);
+        if (result.status !== 0) {
+            return null;
+        }
+        const remoteUrl = result.stdout.toString().trim();
 
         // Parse HTTPS format: https://github.com/owner/repo.git
         const httpsMatch = remoteUrl.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
