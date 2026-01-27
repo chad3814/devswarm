@@ -171,9 +171,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return spec;
     });
 
-    app.patch('/api/specs/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ content: string; status: string }> }>) => {
+    app.patch('/api/specs/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ content: string; status: string }> }>, reply) => {
         const { id } = request.params;
         const updates = request.body;
+
+        // Validate spec approval if status is being set to 'approved'
+        if (updates.status === 'approved') {
+            const spec = app.db.getSpec(id);
+            if (!spec) {
+                return reply.code(404).send({ error: 'Spec not found' });
+            }
+
+            const roadmapItem = app.db.getRoadmapItem(spec.roadmap_item_id);
+            if (!roadmapItem) {
+                return reply.code(500).send({ error: 'Roadmap item not found for spec' });
+            }
+
+            if (app.db.hasUnresolvedDependencies('roadmap_item', roadmapItem.id)) {
+                const blockers = app.db.getDependenciesWithDetails('roadmap_item', roadmapItem.id);
+                return reply.code(400).send({
+                    error: 'Spec cannot be approved - unresolved dependencies',
+                    blockers: blockers.map(b => ({
+                        id: b.blocker_id,
+                        title: b.blocker_title,
+                        status: b.blocker_status,
+                        spec_id: b.blocker_spec_id
+                    }))
+                });
+            }
+        }
 
         app.db.updateSpec(id, updates);
         const spec = app.db.getSpec(id);

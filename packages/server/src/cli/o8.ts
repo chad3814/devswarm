@@ -184,12 +184,43 @@ spec
     .command('approve <id>')
     .description('Approve a spec for implementation')
     .action(async (id: string) => {
-        const spec = await api(`/api/specs/${id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'approved' }),
-        });
-        console.log('Spec approved:');
-        console.log(JSON.stringify(spec, null, 2));
+        try {
+            const spec = await api(`/api/specs/${id}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: 'approved' }),
+            });
+            console.log('Spec approved:');
+            console.log(JSON.stringify(spec, null, 2));
+        } catch (error: any) {
+            // Parse error to check if it's a dependency validation error
+            const errorMessage = error.message || String(error);
+            if (errorMessage.includes('unresolved dependencies')) {
+                try {
+                    // Try to extract the error details from the response
+                    const match = errorMessage.match(/API error 400: (.*)/);
+                    if (match) {
+                        const errorData = JSON.parse(match[1]);
+                        console.error('\n❌ Cannot approve spec - unresolved dependencies:\n');
+                        if (errorData.blockers && Array.isArray(errorData.blockers)) {
+                            for (const blocker of errorData.blockers) {
+                                console.error(`  - [${blocker.status || 'unknown'}] ${blocker.id}`);
+                                if (blocker.title) {
+                                    console.error(`    ${blocker.title}`);
+                                }
+                            }
+                        }
+                        console.error('\n📋 Please complete the blocking roadmap items before approving this spec.\n');
+                    } else {
+                        console.error(errorMessage);
+                    }
+                } catch {
+                    console.error(errorMessage);
+                }
+                process.exit(1);
+            } else {
+                throw error;
+            }
+        }
     });
 
 // Task group commands

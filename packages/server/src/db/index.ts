@@ -264,6 +264,11 @@ export class Db {
         const setClause = fields.map((f) => `${f} = ?`).join(', ');
         const values = fields.map((f) => (updates as Record<string, unknown>)[f]);
         this.db.prepare(`UPDATE roadmap_items SET ${setClause}, updated_at = unixepoch() WHERE id = ?`).run(...values, id);
+
+        // Auto-resolve dependencies when roadmap item is marked as done
+        if (updates.status === 'done') {
+            this.resolveDependenciesForRoadmapItem(id);
+        }
     }
 
     // Specs
@@ -440,6 +445,24 @@ export class Db {
     hasUnresolvedDependencies(blockedType: string, blockedId: string): boolean {
         const count = this.db.prepare('SELECT COUNT(*) as count FROM dependencies WHERE blocked_type = ? AND blocked_id = ? AND resolved = 0').get(blockedType, blockedId) as { count: number };
         return count.count > 0;
+    }
+
+    getDependenciesWithDetails(blockedType: string, blockedId: string): Array<Dependency & { blocker_title?: string; blocker_status?: string; blocker_spec_id?: string | null }> {
+        const stmt = this.db.prepare(`
+            SELECT
+                d.*,
+                r.title as blocker_title,
+                r.status as blocker_status,
+                r.spec_id as blocker_spec_id
+            FROM dependencies d
+            LEFT JOIN roadmap_items r ON d.blocker_type = 'roadmap_item' AND d.blocker_id = r.id
+            WHERE d.blocked_type = ? AND d.blocked_id = ? AND d.resolved = 0
+        `);
+        return stmt.all(blockedType, blockedId) as Array<Dependency & { blocker_title?: string; blocker_status?: string; blocker_spec_id?: string | null }>;
+    }
+
+    resolveDependenciesForRoadmapItem(roadmapItemId: string): void {
+        this.resolveDependency(roadmapItemId, 'roadmap_item');
     }
 
     // Auth State
