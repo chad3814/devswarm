@@ -345,14 +345,22 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     private startMaxRuntimeTimer(): void {
-        const maxRuntime = this.options.maxRuntime || 2 * 60 * 60 * 1000; // Default 2 hours
+        const maxRuntime = this.options.maxRuntime !== undefined
+            ? this.options.maxRuntime
+            : 2 * 60 * 60 * 1000; // Default 2 hours (backward compatibility)
+
+        // If maxRuntime is explicitly undefined or 0, don't set a timer (infinite runtime)
+        if (maxRuntime === undefined || maxRuntime === 0) {
+            console.log(`[Claude ${this.id}] No max runtime limit set (infinite)`);
+            return;
+        }
 
         this.maxRuntimeTimer = setTimeout(() => {
             console.error(`[Claude ${this.id}] Maximum runtime exceeded (${maxRuntime}ms), forcing exit`);
             this.handleTimeout();
         }, maxRuntime);
 
-        console.log(`[Claude ${this.id}] Started max runtime timer (${maxRuntime}ms)`);
+        console.log(`[Claude ${this.id}] Started max runtime timer (${maxRuntime}ms = ${Math.floor(maxRuntime / 60000)} minutes)`);
     }
 
     private handleTimeout(): void {

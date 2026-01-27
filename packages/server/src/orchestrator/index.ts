@@ -103,6 +103,7 @@ export class Orchestrator {
             db: this.db,
             worktreePath: mainWt,
             systemPrompt: MAIN_CLAUDE_PROMPT,
+            maxRuntime: undefined, // No timeout for main orchestrator
         });
 
         await this.mainClaude.start();
@@ -147,12 +148,18 @@ Please review and decide what to work on first.
 
             const wtPath = await this.git.getWorktreePath(record.worktree_name);
 
+            // Determine maxRuntime based on role
+            const maxRuntime = (record.role === 'main' || record.role === 'spec_creator')
+                ? undefined  // No timeout for main and spec_creator
+                : 3600000;   // 1 hour for coordinator and worker
+
             const instance = new ClaudeInstance({
                 id: record.id,
                 role: record.role as 'main' | 'spec_creator' | 'coordinator' | 'worker',
                 db: this.db,
                 worktreePath: wtPath,
                 resumeId: record.resume_id,
+                maxRuntime,
             });
 
             await instance.start();
@@ -279,6 +286,7 @@ The system will automatically start implementation once the spec is approved.
                 systemPrompt: COORDINATOR_PROMPT,
                 contextType: 'spec',
                 contextId: spec.id,
+                maxRuntime: 3600000, // 1 hour timeout for coordinators
             });
 
             await coordinator.start();

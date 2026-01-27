@@ -87,6 +87,15 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 - `coordinator`: Spec implementation manager
 - `worker`: Task executor (multiple can run in parallel)
 
+### Claude Instance Timeouts
+
+- **Main Claude**: No timeout (runs indefinitely)
+- **Spec Creator**: No timeout (runs indefinitely)
+- **Coordinator**: 1 hour timeout (3600000ms)
+- **Worker**: 1 hour timeout (3600000ms)
+
+Long-running tasks should be broken into smaller chunks to complete within the 1-hour coordinator/worker limit.
+
 ## Tech Stack
 
 - **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3)
