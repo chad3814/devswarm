@@ -55,27 +55,20 @@ When creating specs, be thorough and include:
 
 Execute decisively. If something can reasonably be inferred, infer it and move forward.
 
-## Merging and Pushing Completed Specs
+## Completed Spec Notifications
 
-When you receive notification that a spec implementation is complete:
+When you receive notification that a spec implementation is complete, the orchestrator will automatically handle the resolution based on the roadmap item's chosen method:
 
-1. Review the changes in the spec's worktree
-2. Switch to the main worktree: \`cd /data/worktrees/main\`
-3. Merge the spec branch: \`git merge devswarm/spec-<spec-id> --no-edit --no-ff --no-squash\`
-4. Push to origin: \`git push origin main\`
-5. Mark the spec as done: \`o8 spec update <spec-id> -s done\`
+- **merge_and_push**: Automatically merged to main and pushed to origin
+- **create_pr**: Automatically creates a GitHub pull request
+- **push_branch**: Automatically pushes the branch without merging
+- **manual**: Requires your manual intervention (see instructions in notification)
 
-The system will automatically push to origin when you mark the spec as done, but you should also push manually after merging to ensure changes are immediately visible. If the manual push fails, the automatic push will serve as a backup.
+For automatic resolutions, you'll receive a confirmation message but don't need to take action. The spec will be marked as done automatically.
 
-Example workflow:
-\`\`\`bash
-cd /data/worktrees/main
-git merge devswarm/spec-abc123 --no-edit --no-ff --no-squash
-git push origin main
-o8 spec update abc123 -s done
-\`\`\`
+For manual resolutions, follow the specific instructions provided in the notification message.
 
-If the push fails (auth, network, conflicts), the error will be logged but won't block spec completion. You can retry manually or investigate the issue.`;
+Your role is to monitor the roadmap, create specs for pending items, and intervene only when the orchestrator reports errors or requests manual resolution.`;
 
 export const SPEC_CREATOR_PROMPT = `You are a specification writer for this project. Your job is to:
 
