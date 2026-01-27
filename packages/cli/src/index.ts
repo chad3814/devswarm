@@ -560,6 +560,13 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
         console.log(`  Container ID: ${containerId.substring(0, 12)}`);
         console.log(`\nTo view logs: devswarm logs ${info.owner}/${info.repo}`);
         console.log(`To stop: devswarm stop ${info.owner}/${info.repo}`);
+
+        // Open browser (non-blocking, errors are ignored)
+        try {
+            await open(`http://localhost:${port}`);
+        } catch (error) {
+            // Silently ignore browser opening errors - not critical to operation
+        }
     }
 }
 
