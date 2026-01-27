@@ -7,6 +7,7 @@ import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
 import { nanoid } from 'nanoid';
 import { getGitHubRepoInfo } from '../git/repo-info.js';
+import { spawnSync } from 'child_process';
 
 export class Orchestrator {
     private running = false;
@@ -669,9 +670,11 @@ Please resolve conflicts manually in worktree "${spec.worktree_name}".
             const currentBranch = await this.git.getCurrentBranch(spec.worktree_name);
 
             // Count commits on spec branch not on main
-            const { execSync } = await import('child_process');
-            const stdout = execSync(`git rev-list main..${currentBranch} --count`, { cwd: wtPath, encoding: 'utf-8' });
-            const commitCount = parseInt(stdout.trim(), 10);
+            const result = spawnSync('git', ['rev-list', `main..${currentBranch}`, '--count'], { cwd: wtPath, encoding: 'utf-8' });
+            if (result.status !== 0) {
+                return false;
+            }
+            const commitCount = parseInt(result.stdout.trim(), 10);
 
             return commitCount > 0;
         } catch (error) {
