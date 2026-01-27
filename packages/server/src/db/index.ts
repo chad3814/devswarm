@@ -13,6 +13,7 @@ export interface RoadmapItem {
     description: string;
     status: string;
     spec_id: string | null;
+    resolution_method: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual';
     created_at: number;
     updated_at: number;
 }
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS roadmap_items (
     description TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     spec_id TEXT REFERENCES specs(id),
+    resolution_method TEXT NOT NULL DEFAULT 'merge_and_push',
     created_at INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
@@ -201,12 +203,29 @@ export class Db {
         this.db.pragma('journal_mode = WAL');
         this.db.exec(SCHEMA);
         this.migrateOverseerToCoordinator();
+        this.migrateAddResolutionMethod();
     }
 
     private migrateOverseerToCoordinator(): void {
         const result = this.db.prepare("UPDATE claude_instances SET role = 'coordinator' WHERE role = 'overseer'").run();
         if (result.changes > 0) {
             console.log(`[DB Migration] Updated ${result.changes} overseer instances to coordinator`);
+        }
+    }
+
+    private migrateAddResolutionMethod(): void {
+        try {
+            // Check if column already exists
+            const columns = this.db.prepare("PRAGMA table_info(roadmap_items)").all() as Array<{ name: string }>;
+            const hasColumn = columns.some(col => col.name === 'resolution_method');
+
+            if (!hasColumn) {
+                console.log('[DB Migration] Adding resolution_method column to roadmap_items');
+                this.db.exec("ALTER TABLE roadmap_items ADD COLUMN resolution_method TEXT NOT NULL DEFAULT 'merge_and_push'");
+                console.log('[DB Migration] Successfully added resolution_method column');
+            }
+        } catch (error) {
+            console.error('[DB Migration] Failed to add resolution_method column:', error);
         }
     }
 
@@ -218,10 +237,10 @@ export class Db {
     createRoadmapItem(item: Omit<RoadmapItem, 'id' | 'created_at' | 'updated_at'>): RoadmapItem {
         const id = nanoid();
         const stmt = this.db.prepare(`
-            INSERT INTO roadmap_items (id, github_issue_id, github_issue_url, github_issue_closed, title, description, status, spec_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO roadmap_items (id, github_issue_id, github_issue_url, github_issue_closed, title, description, status, spec_id, resolution_method)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        stmt.run(id, item.github_issue_id, item.github_issue_url, item.github_issue_closed, item.title, item.description, item.status, item.spec_id);
+        stmt.run(id, item.github_issue_id, item.github_issue_url, item.github_issue_closed, item.title, item.description, item.status, item.spec_id, item.resolution_method);
         return this.getRoadmapItem(id)!;
     }
 
