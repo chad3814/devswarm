@@ -400,15 +400,32 @@ async function followLogs(containerId: string, onReady: () => void): Promise<voi
 
     let ready = false;
 
-    stream.on('data', (chunk: Buffer) => {
-        const line = chunk.toString();
-        process.stdout.write(line);
+    // Create writable streams that can detect the ready signal
+    const stdoutProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stdout.write(chunk);
 
-        if (!ready && line.includes('Server listening on port')) {
-            ready = true;
-            onReady();
+            // Check for ready signal in stdout
+            if (!ready) {
+                const line = chunk.toString();
+                if (line.includes('Server listening on port')) {
+                    ready = true;
+                    onReady();
+                }
+            }
+            callback();
         }
     });
+
+    const stderrProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stderr.write(chunk);
+            callback();
+        }
+    });
+
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, stdoutProxy, stderrProxy);
 }
 
 async function listContainers(): Promise<void> {
@@ -519,9 +536,8 @@ async function tailLogs(repoArg: string): Promise<void> {
     const container = docker.getContainer(containers[0].Id);
     const stream = await container.logs({ follow: true, stdout: true, stderr: true, tail: 100 });
 
-    stream.on('data', (chunk: Buffer) => {
-        process.stdout.write(chunk.toString());
-    });
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, process.stdout, process.stderr);
 
     process.on('SIGINT', () => {
         process.exit(0);
@@ -545,20 +561,38 @@ async function streamContainerLogs(
 
     let readyTriggered = false;
 
-    stream.on('data', (chunk: Buffer) => {
-        const line = chunk.toString();
-        process.stdout.write(line);
+    // Create writable streams that can detect the ready signal
+    const stdoutProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stdout.write(chunk);
 
-        // Trigger ready callback when server is listening
-        if (!readyTriggered && onReady && line.includes('Server listening on port')) {
-            readyTriggered = true;
-            onReady();
+            // Check for ready signal in stdout
+            if (!readyTriggered && onReady) {
+                const line = chunk.toString();
+                if (line.includes('Server listening on port')) {
+                    readyTriggered = true;
+                    onReady();
+                }
+            }
+            callback();
         }
     });
+
+    const stderrProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stderr.write(chunk);
+            callback();
+        }
+    });
+
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, stdoutProxy, stderrProxy);
 
     const cleanup = () => {
         // The stream is a Node.js readable stream that supports destroy
         (stream as any).destroy();
+        stdoutProxy.end();
+        stderrProxy.end();
     };
 
     return { cleanup };
