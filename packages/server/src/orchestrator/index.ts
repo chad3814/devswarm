@@ -450,7 +450,7 @@ ${spec.content}
 
         // Spec is complete - apply resolution method
         const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
-        const resolutionMethod = roadmapItem?.resolution_method || spec.resolution_method || 'manual';
+        const resolutionMethod = roadmapItem?.resolution_method || 'manual';
 
         console.log(`[Orchestrator] Spec ${specId} complete, applying resolution: ${resolutionMethod}`);
 
