@@ -84,6 +84,7 @@ export class Orchestrator {
                         description: issue.body || '',
                         status: 'pending',
                         spec_id: null,
+                        resolution_method: 'merge_and_push',
                     });
                 }
             }
@@ -419,29 +420,153 @@ ${spec.content}
 
         console.log(`[Orchestrator] Spec ${specId} all task groups complete, transitioning to merging`);
 
-        // Mark spec as ready for review
+        // Get roadmap item to check resolution preference
+        const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+        const resolutionMethod = roadmapItem?.resolution_method || 'manual';
+
+        console.log(`[Orchestrator] Spec ${specId} resolution method: ${resolutionMethod}`);
+
+        // Mark spec as merging
         this.db.updateSpec(specId, { status: 'merging' });
         console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
 
-        // Notify main claude to review and merge
+        try {
+            switch (resolutionMethod) {
+                case 'merge_and_push':
+                    await this.autoMergeAndPush(spec);
+                    break;
+                case 'create_pr':
+                    await this.autoCreatePR(spec);
+                    break;
+                case 'push_branch':
+                    await this.autoPushBranch(spec);
+                    break;
+                case 'manual':
+                default:
+                    await this.notifyMainClaudeForManualResolution(spec);
+                    break;
+            }
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to auto-resolve spec ${specId}:`, error);
+            // Fall back to manual if auto-resolution fails
+            await this.notifyMainClaudeForManualResolution(spec);
+        }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
+    }
+
+    private async autoMergeAndPush(spec: Spec): Promise<void> {
+        if (!spec.worktree_name) {
+            throw new Error('Spec has no worktree');
+        }
+
+        console.log(`[Orchestrator] Auto-merging spec ${spec.id} to main`);
+
+        // Merge to main
+        const result = await this.git.merge(spec.worktree_name, 'main');
+
+        if (!result.success) {
+            console.error(`[Orchestrator] Merge conflicts detected for spec ${spec.id}`);
+            await this.notifyMainClaudeAboutConflicts(spec, result.conflicts);
+            return;
+        }
+
+        // Push main to origin
+        await this.git.push('main');
+
+        // Mark spec as done
+        this.db.updateSpec(spec.id, { status: 'done' });
+
+        console.log(`[Orchestrator] Successfully auto-merged and pushed spec ${spec.id}`);
+
+        // Notify main Claude of success
         if (this.mainClaude) {
-            console.log(`[Orchestrator] Notifying main Claude about completed spec ${specId}`);
+            await this.mainClaude.sendMessage(
+                `Spec ${spec.id} has been automatically merged to main and pushed to origin.`
+            );
+        }
+    }
+
+    private async autoCreatePR(spec: Spec): Promise<void> {
+        if (!spec.worktree_name) {
+            throw new Error('Spec has no worktree');
+        }
+
+        console.log(`[Orchestrator] Creating PR for spec ${spec.id}`);
+
+        const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+        const title = `[DevSwarm] ${roadmapItem?.title || spec.id}`;
+        const body = `Automated implementation of spec ${spec.id}\n\n${roadmapItem?.description || ''}`;
+
+        const pr = await this.git.createPullRequest(spec.worktree_name, title, body);
+
+        // Mark spec as done (PR created)
+        this.db.updateSpec(spec.id, { status: 'done' });
+
+        console.log(`[Orchestrator] Created PR #${pr.number} for spec ${spec.id}: ${pr.url}`);
+
+        // Notify main Claude
+        if (this.mainClaude) {
+            await this.mainClaude.sendMessage(
+                `Spec ${spec.id} has been completed. Pull request created: ${pr.url}`
+            );
+        }
+    }
+
+    private async autoPushBranch(spec: Spec): Promise<void> {
+        if (!spec.worktree_name) {
+            throw new Error('Spec has no worktree');
+        }
+
+        console.log(`[Orchestrator] Pushing branch for spec ${spec.id}`);
+
+        // Push the branch to origin
+        await this.git.push(spec.worktree_name);
+
+        // Mark spec as done
+        this.db.updateSpec(spec.id, { status: 'done' });
+
+        const branchName = spec.branch_name || `devswarm/${spec.worktree_name}`;
+
+        console.log(`[Orchestrator] Successfully pushed branch ${branchName} for spec ${spec.id}`);
+
+        // Notify main Claude
+        if (this.mainClaude) {
+            await this.mainClaude.sendMessage(
+                `Spec ${spec.id} has been completed. Branch ${branchName} has been pushed to origin.`
+            );
+        }
+    }
+
+    private async notifyMainClaudeForManualResolution(spec: Spec): Promise<void> {
+        // Current behavior - same as before
+        if (this.mainClaude) {
             await this.mainClaude.sendMessage(`
-Spec implementation complete: ${specId}
+Spec implementation complete: ${spec.id}
 
 The coordinator has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
 1. Merge directly to main if everything looks good
 2. Create a PR for review
 3. Request changes if something needs to be fixed
 
-Use \`o8 spec update ${specId} -s done\` after merging, or \`o8 spec update ${specId} -s in_progress\` if changes are needed.
+Use \`o8 spec update ${spec.id} -s done\` after merging, or \`o8 spec update ${spec.id} -s in_progress\` if changes are needed.
             `);
         } else {
-            console.warn(`[Orchestrator] Main Claude not available to notify about spec ${specId} completion`);
+            console.warn(`[Orchestrator] Main Claude not available to notify about spec ${spec.id} completion`);
         }
+    }
 
-        // Broadcast state update
-        this.wsHub.broadcastState(this.db);
+    private async notifyMainClaudeAboutConflicts(spec: Spec, conflicts: string[]): Promise<void> {
+        if (this.mainClaude) {
+            await this.mainClaude.sendMessage(`
+Spec ${spec.id} merge conflicts detected:
+
+${conflicts.map(f => `- ${f}`).join('\n')}
+
+Please resolve conflicts manually in worktree "${spec.worktree_name}".
+            `);
+        }
     }
 
     async answerQuestion(questionId: string, response: string): Promise<void> {

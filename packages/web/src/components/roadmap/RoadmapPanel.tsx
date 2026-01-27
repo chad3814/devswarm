@@ -17,15 +17,17 @@ export function RoadmapPanel() {
     const [showAdd, setShowAdd] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDescription, setNewDescription] = useState('');
+    const [resolutionMethod, setResolutionMethod] = useState('merge_and_push');
 
     const handleAdd = async () => {
         if (!newTitle.trim()) return;
 
         try {
-            const item = await api.createRoadmapItem(newTitle, newDescription);
+            const item = await api.createRoadmapItem(newTitle, newDescription, resolutionMethod);
             addRoadmapItem(item as any);
             setNewTitle('');
             setNewDescription('');
+            setResolutionMethod('merge_and_push');
             setShowAdd(false);
         } catch (e) {
             console.error('Failed to create roadmap item:', e);
@@ -59,6 +61,27 @@ export function RoadmapPanel() {
                         onChange={(e) => setNewDescription(e.target.value)}
                         className="w-full bg-gray-700 rounded px-3 py-2 mb-2 h-24"
                     />
+
+                    <div className="mb-2">
+                        <label className="block text-sm text-gray-400 mb-1">Resolution Method</label>
+                        <select
+                            value={resolutionMethod}
+                            onChange={(e) => setResolutionMethod(e.target.value)}
+                            className="w-full bg-gray-700 rounded px-3 py-2"
+                        >
+                            <option value="merge_and_push">Merge and Push (Recommended)</option>
+                            <option value="create_pr">Create Pull Request</option>
+                            <option value="push_branch">Push Branch Only</option>
+                            <option value="manual">Manual (No Automatic Action)</option>
+                        </select>
+                        <p className="text-xs text-gray-500 mt-1">
+                            {resolutionMethod === 'merge_and_push' && 'Automatically merge to main and push when complete'}
+                            {resolutionMethod === 'create_pr' && 'Create a pull request for review when complete'}
+                            {resolutionMethod === 'push_branch' && 'Push the branch without merging when complete'}
+                            {resolutionMethod === 'manual' && 'Main Claude will handle completion manually'}
+                        </p>
+                    </div>
+
                     <button
                         onClick={handleAdd}
                         className="w-full bg-green-600 hover:bg-green-700 rounded py-2"
@@ -81,6 +104,15 @@ export function RoadmapPanel() {
                         <p className="text-sm text-gray-400 line-clamp-2">{item.description}</p>
                         <div className="flex items-center gap-2 mt-2">
                             <span className="text-xs text-gray-500 capitalize">{item.status.replace(/_/g, ' ')}</span>
+
+                            <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
+                                {item.resolution_method === 'merge_and_push' && '🔀 Auto-merge'}
+                                {item.resolution_method === 'create_pr' && '🔃 PR'}
+                                {item.resolution_method === 'push_branch' && '📤 Push'}
+                                {item.resolution_method === 'manual' && '✋ Manual'}
+                                {!item.resolution_method && '🔀 Auto-merge'}
+                            </span>
+
                             {item.github_issue_url && (
                                 <a
                                     href={item.github_issue_url}

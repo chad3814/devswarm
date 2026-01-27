@@ -7,6 +7,7 @@ export interface RoadmapItem {
     status: string;
     github_issue_url?: string;
     spec_id?: string;
+    resolution_method?: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual';
 }
 
 export interface Spec {

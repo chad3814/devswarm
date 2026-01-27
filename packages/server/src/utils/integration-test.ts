@@ -23,6 +23,7 @@ try {
         description: 'The orchestrator should handle errors better',
         status: 'approved',
         spec_id: null,
+        resolution_method: 'merge_and_push',
     });
     console.log(`Created roadmap item: ${githubItem.id}`);
     console.log(`  Title: ${githubItem.title}`);
@@ -54,6 +55,7 @@ try {
         description: 'Users want dark mode',
         status: 'approved',
         spec_id: null,
+        resolution_method: 'merge_and_push',
     });
     console.log(`Created roadmap item: ${liveItem.id}`);
     console.log(`  Title: ${liveItem.title}`);
@@ -129,6 +131,7 @@ try {
         description: 'Special chars test',
         status: 'approved',
         spec_id: null,
+        resolution_method: 'merge_and_push',
     });
 
     const edgeSpec = db.createSpec({
