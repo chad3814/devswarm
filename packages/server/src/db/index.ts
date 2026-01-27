@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import { nanoid } from 'nanoid';
+import { generateSpecId } from '../utils/slug.js';
 
 export interface RoadmapItem {
     id: string;
@@ -248,7 +249,17 @@ export class Db {
 
     // Specs
     createSpec(spec: Omit<Spec, 'id' | 'created_at' | 'updated_at'>): Spec {
-        const id = nanoid();
+        // Get roadmap item to generate semantic ID
+        const roadmapItem = this.getRoadmapItem(spec.roadmap_item_id);
+        if (!roadmapItem) {
+            throw new Error(`Roadmap item ${spec.roadmap_item_id} not found`);
+        }
+
+        const id = generateSpecId({
+            github_issue_id: roadmapItem.github_issue_id,
+            title: roadmapItem.title,
+        });
+
         const stmt = this.db.prepare(`
             INSERT INTO specs (id, roadmap_item_id, content, status, worktree_name, branch_name, error_message)
             VALUES (?, ?, ?, ?, ?, ?, ?)
