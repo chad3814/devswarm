@@ -68,7 +68,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     // Roadmap routes
     app.get('/api/roadmap', async () => {
-        return app.db.getRoadmapItems();
+        const items = app.db.getRoadmapItems();
+        // Enhance with dependency information
+        return items.map(item => ({
+            ...item,
+            has_unresolved_dependencies: app.db.hasUnresolvedDependencies('roadmap_item', item.id),
+            dependency_count: app.db.getBlockersFor('roadmap_item', item.id).length,
+        }));
     });
 
     app.post('/api/roadmap', async (request: FastifyRequest<{ Body: { title: string; description: string; resolution_method?: string } }>) => {
@@ -128,6 +134,87 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return { taskGroups: taskGroupsWithTasks };
     });
 
+    // Dependency routes
+    app.get('/api/roadmap/:id/dependencies', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+        const { id } = request.params;
+
+        // Verify roadmap item exists
+        const roadmapItem = app.db.getRoadmapItem(id);
+        if (!roadmapItem) {
+            throw { statusCode: 404, message: 'Roadmap item not found' };
+        }
+
+        const dependencies = app.db.getDependenciesWithDetails('roadmap_item', id);
+
+        return {
+            dependencies: dependencies.map(d => ({
+                id: d.id,
+                blocker_id: d.blocker_id,
+                blocker_title: d.blocker_title,
+                blocker_status: d.blocker_status,
+                blocker_spec_id: d.blocker_spec_id,
+                resolved: d.resolved === 1,
+                created_at: d.created_at,
+            }))
+        };
+    });
+
+    app.post('/api/roadmap/:id/dependencies', async (request: FastifyRequest<{ Params: { id: string }; Body: { blocker_id: string } }>, reply) => {
+        const { id } = request.params;
+        const { blocker_id } = request.body;
+
+        // Verify both roadmap items exist
+        const blockedItem = app.db.getRoadmapItem(id);
+        if (!blockedItem) {
+            return reply.code(404).send({ error: 'Blocked roadmap item not found' });
+        }
+
+        const blockerItem = app.db.getRoadmapItem(blocker_id);
+        if (!blockerItem) {
+            return reply.code(404).send({ error: 'Blocker roadmap item not found' });
+        }
+
+        // Check for self-dependency
+        if (blocker_id === id) {
+            return reply.code(400).send({ error: 'Cannot create self-dependency' });
+        }
+
+        // Check for circular dependency
+        if (app.db.detectCircularDependency(blocker_id, id)) {
+            return reply.code(400).send({ error: 'Circular dependency detected' });
+        }
+
+        // Create dependency
+        const dependency = app.db.createDependency({
+            blocker_type: 'roadmap_item',
+            blocker_id,
+            blocked_type: 'roadmap_item',
+            blocked_id: id,
+            resolved: 0,
+        });
+
+        app.wsHub.broadcastState(app.db);
+
+        return reply.code(201).send({ dependency });
+    });
+
+    app.delete('/api/roadmap/:id/dependencies/:depId', async (request: FastifyRequest<{ Params: { id: string; depId: string } }>, reply) => {
+        const { id, depId } = request.params;
+
+        // Verify dependency exists and belongs to this roadmap item
+        const dependency = app.db.getBlockersFor('roadmap_item', id).find(d => d.id === depId);
+        if (!dependency) {
+            return reply.code(404).send({ error: 'Dependency not found' });
+        }
+
+        // Delete dependency
+        app.db.deleteDependency(depId);
+
+        app.wsHub.broadcastState(app.db);
+
+        return reply.code(204).send();
+    });
+
     // Specs routes
     app.get('/api/specs', async () => {
         return app.db.getSpecs();
@@ -171,9 +258,35 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return spec;
     });
 
-    app.patch('/api/specs/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ content: string; status: string }> }>) => {
+    app.patch('/api/specs/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ content: string; status: string }> }>, reply) => {
         const { id } = request.params;
         const updates = request.body;
+
+        // Validate spec approval if status is being set to 'approved'
+        if (updates.status === 'approved') {
+            const spec = app.db.getSpec(id);
+            if (!spec) {
+                return reply.code(404).send({ error: 'Spec not found' });
+            }
+
+            const roadmapItem = app.db.getRoadmapItem(spec.roadmap_item_id);
+            if (!roadmapItem) {
+                return reply.code(500).send({ error: 'Roadmap item not found for spec' });
+            }
+
+            if (app.db.hasUnresolvedDependencies('roadmap_item', roadmapItem.id)) {
+                const blockers = app.db.getDependenciesWithDetails('roadmap_item', roadmapItem.id);
+                return reply.code(400).send({
+                    error: 'Spec cannot be approved - unresolved dependencies',
+                    blockers: blockers.map(b => ({
+                        id: b.blocker_id,
+                        title: b.blocker_title,
+                        status: b.blocker_status,
+                        spec_id: b.blocker_spec_id
+                    }))
+                });
+            }
+        }
 
         app.db.updateSpec(id, updates);
         const spec = app.db.getSpec(id);
