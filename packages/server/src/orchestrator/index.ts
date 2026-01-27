@@ -15,6 +15,7 @@ export class Orchestrator {
     private notifiedRoadmapItems = new Set<string>();
     private pushedSpecs = new Set<string>();
     private specErrorCounts = new Map<string, number>();
+    private coordinatorLastActivityTime = new Map<string, number>();
 
     constructor(
         private db: Db,
@@ -303,6 +304,7 @@ The system will automatically start implementation once the spec is approved.
 
             // Set up handlers
             coordinator.on('output', (data) => {
+                this.coordinatorLastActivityTime.set(coordinator.id, Date.now());
                 this.wsHub.broadcastClaudeOutput(coordinator.id, data, 'coordinator', worktreeName);
             });
 
@@ -416,18 +418,28 @@ ${spec.content}
         const taskGroups = this.db.getTaskGroupsForSpec(specId);
         console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
-        // Check if all task groups are done
-        // Require at least one task group to prevent premature completion before coordinator creates tasks
-        const allTaskGroupsDone = taskGroups.length > 0 && taskGroups.every((tg) => tg.status === 'done');
+        // Option 1: Task group-based completion (existing behavior)
+        if (taskGroups.length > 0) {
+            const allTaskGroupsDone = taskGroups.every((tg) => tg.status === 'done');
 
-        if (!allTaskGroupsDone) {
-            const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
-            console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
+            if (!allTaskGroupsDone) {
+                const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
+                console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
+                return;
+            }
+
+            // All task groups done - mark as complete
+            console.log(`[Orchestrator] Spec ${specId} completing via task group path (all ${taskGroups.length} task groups done)`);
+            await this.transitionSpecToMerging(spec);
             return;
         }
 
-        console.log(`[Orchestrator] Spec ${specId} all task groups complete, transitioning to merging`);
+        // Option 2: Auto-detect completion for specs without task groups
+        // Check if coordinator has made commits and is idle
+        const hasCommits = await this.specHasCommits(spec);
+        const coordinatorIdle = this.isCoordinatorIdle(spec);
 
+<<<<<<< HEAD
         // Get roadmap item to check resolution preference
         const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
         const resolutionMethod = roadmapItem?.resolution_method || 'manual';
@@ -575,6 +587,14 @@ ${conflicts.map(f => `- ${f}`).join('\n')}
 Please resolve conflicts manually in worktree "${spec.worktree_name}".
             `);
         }
+=======
+        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect check - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
+
+        if (hasCommits && coordinatorIdle) {
+            console.log(`[Orchestrator] Spec ${specId} completing via auto-detect path (no task groups, has commits, coordinator idle)`);
+            await this.transitionSpecToMerging(spec);
+        }
+>>>>>>> devswarm/spec-live-fix-coordinator-workflow-to-handle-specs-without-t-tcbjue
     }
 
     async answerQuestion(questionId: string, response: string): Promise<void> {
@@ -641,6 +661,76 @@ Please resolve conflicts manually in worktree "${spec.worktree_name}".
                 // Continue processing other issues - don't let one failure stop the rest
             }
         }
+    }
+
+    private async specHasCommits(spec: Spec): Promise<boolean> {
+        if (!spec.worktree_name) return false;
+
+        try {
+            const wtPath = await this.git.getWorktreePath(spec.worktree_name);
+            const currentBranch = await this.git.getCurrentBranch(spec.worktree_name);
+
+            // Count commits on spec branch not on main
+            const { execSync } = await import('child_process');
+            const stdout = execSync(`git rev-list main..${currentBranch} --count`, { cwd: wtPath, encoding: 'utf-8' });
+            const commitCount = parseInt(stdout.trim(), 10);
+
+            return commitCount > 0;
+        } catch (error) {
+            console.error(`[Orchestrator] Error checking commits for spec ${spec.id}:`, error);
+            return false;
+        }
+    }
+
+    private isCoordinatorIdle(spec: Spec): boolean {
+        // Find coordinator instance for this spec
+        for (const [id, instance] of this.instances) {
+            const record = this.db.getClaudeInstance(id);
+            if (record?.role === 'coordinator' && record.context_id === spec.id) {
+                // Check if instance has been idle for at least 60 seconds
+                return this.coordinatorHasBeenIdleFor(id, 60000);
+            }
+        }
+
+        // No coordinator found or coordinator stopped - consider idle
+        return true;
+    }
+
+    private coordinatorHasBeenIdleFor(instanceId: string, ms: number): boolean {
+        const lastActivity = this.coordinatorLastActivityTime.get(instanceId);
+        if (!lastActivity) {
+            // No activity recorded yet - not idle
+            return false;
+        }
+
+        return Date.now() - lastActivity >= ms;
+    }
+
+    private async transitionSpecToMerging(spec: Spec): Promise<void> {
+        console.log(`[Orchestrator] Spec ${spec.id} transitioning to merging`);
+
+        this.db.updateSpec(spec.id, { status: 'merging' });
+        console.log(`[Orchestrator] Spec ${spec.id} status: in_progress → merging`);
+
+        // Notify main claude to review and merge
+        if (this.mainClaude) {
+            console.log(`[Orchestrator] Notifying main Claude about completed spec ${spec.id}`);
+            await this.mainClaude.sendMessage(`
+Spec implementation complete: ${spec.id}
+
+The coordinator has finished implementing this spec. Please review the changes in worktree "${spec.worktree_name}" and either:
+1. Merge directly to main if everything looks good
+2. Create a PR for review
+3. Request changes if something needs to be fixed
+
+Use \`o8 spec update ${spec.id} -s done\` after merging, or \`o8 spec update ${spec.id} -s in_progress\` if changes are needed.
+            `);
+        } else {
+            console.warn(`[Orchestrator] Main Claude not available to notify about spec ${spec.id} completion`);
+        }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
     }
 }
 
