@@ -439,41 +439,46 @@ ${spec.content}
         const hasCommits = await this.specHasCommits(spec);
         const coordinatorIdle = this.isCoordinatorIdle(spec);
 
-<<<<<<< HEAD
-        // Get roadmap item to check resolution preference
-        const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
-        const resolutionMethod = roadmapItem?.resolution_method || 'manual';
+        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect check - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
 
-        console.log(`[Orchestrator] Spec ${specId} resolution method: ${resolutionMethod}`);
+        if (hasCommits && coordinatorIdle) {
+            console.log(`[Orchestrator] Spec ${specId} completing via auto-detect path (no task groups, has commits, coordinator idle)`);
 
-        // Mark spec as merging
-        this.db.updateSpec(specId, { status: 'merging' });
-        console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
+            // Get roadmap item to check resolution preference
+            const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+            const resolutionMethod = roadmapItem?.resolution_method || 'manual';
 
-        try {
-            switch (resolutionMethod) {
-                case 'merge_and_push':
-                    await this.autoMergeAndPush(spec);
-                    break;
-                case 'create_pr':
-                    await this.autoCreatePR(spec);
-                    break;
-                case 'push_branch':
-                    await this.autoPushBranch(spec);
-                    break;
-                case 'manual':
-                default:
-                    await this.notifyMainClaudeForManualResolution(spec);
-                    break;
+            console.log(`[Orchestrator] Spec ${specId} resolution method: ${resolutionMethod}`);
+
+            // Mark spec as merging
+            this.db.updateSpec(specId, { status: 'merging' });
+            console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
+
+            try {
+                switch (resolutionMethod) {
+                    case 'merge_and_push':
+                        await this.autoMergeAndPush(spec);
+                        break;
+                    case 'create_pr':
+                        await this.autoCreatePR(spec);
+                        break;
+                    case 'push_branch':
+                        await this.autoPushBranch(spec);
+                        break;
+                    case 'manual':
+                    default:
+                        await this.notifyMainClaudeForManualResolution(spec);
+                        break;
+                }
+            } catch (error) {
+                console.error(`[Orchestrator] Failed to auto-resolve spec ${specId}:`, error);
+                // Fall back to manual if auto-resolution fails
+                await this.notifyMainClaudeForManualResolution(spec);
             }
-        } catch (error) {
-            console.error(`[Orchestrator] Failed to auto-resolve spec ${specId}:`, error);
-            // Fall back to manual if auto-resolution fails
-            await this.notifyMainClaudeForManualResolution(spec);
-        }
 
-        // Broadcast state update
-        this.wsHub.broadcastState(this.db);
+            // Broadcast state update
+            this.wsHub.broadcastState(this.db);
+        }
     }
 
     private async autoMergeAndPush(spec: Spec): Promise<void> {
@@ -560,7 +565,6 @@ ${spec.content}
     }
 
     private async notifyMainClaudeForManualResolution(spec: Spec): Promise<void> {
-        // Current behavior - same as before
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(`
 Spec implementation complete: ${spec.id}
@@ -587,14 +591,6 @@ ${conflicts.map(f => `- ${f}`).join('\n')}
 Please resolve conflicts manually in worktree "${spec.worktree_name}".
             `);
         }
-=======
-        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect check - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
-
-        if (hasCommits && coordinatorIdle) {
-            console.log(`[Orchestrator] Spec ${specId} completing via auto-detect path (no task groups, has commits, coordinator idle)`);
-            await this.transitionSpecToMerging(spec);
-        }
->>>>>>> devswarm/spec-live-fix-coordinator-workflow-to-handle-specs-without-t-tcbjue
     }
 
     async answerQuestion(questionId: string, response: string): Promise<void> {
