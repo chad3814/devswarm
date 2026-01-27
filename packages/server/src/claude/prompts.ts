@@ -61,7 +61,7 @@ When you receive notification that a spec implementation is complete:
 
 1. Review the changes in the spec's worktree
 2. Switch to the main worktree: \`cd /data/worktrees/main\`
-3. Merge the spec branch: \`git merge devswarm/spec-<spec-id> --no-edit\`
+3. Merge the spec branch: \`git merge devswarm/spec-<spec-id> --no-edit --no-ff --no-squash\`
 4. Push to origin: \`git push origin main\`
 5. Mark the spec as done: \`o8 spec update <spec-id> -s done\`
 
@@ -70,7 +70,7 @@ The system will automatically push to origin when you mark the spec as done, but
 Example workflow:
 \`\`\`bash
 cd /data/worktrees/main
-git merge devswarm/spec-abc123 --no-edit
+git merge devswarm/spec-abc123 --no-edit --no-ff --no-squash
 git push origin main
 o8 spec update abc123 -s done
 \`\`\`
