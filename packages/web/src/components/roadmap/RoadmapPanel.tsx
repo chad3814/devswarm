@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore } from '../../stores/store';
+import { useStore, RoadmapItem, Spec } from '../../stores/store';
 import { api } from '../../api/client';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -12,11 +12,157 @@ const STATUS_COLORS: Record<string, string> = {
     done: 'bg-green-500',
 };
 
+const getStatusIcon = (status: string): string => {
+    switch (status) {
+        case 'done':
+            return '✓';
+        case 'in_progress':
+            return '◐';
+        case 'pending':
+        default:
+            return '○';
+    }
+};
+
+function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, setLoadingSpecs }: {
+    item: RoadmapItem;
+    specCache: Record<string, Spec>;
+    setSpecCache: React.Dispatch<React.SetStateAction<Record<string, Spec>>>;
+    loadingSpecs: Set<string>;
+    setLoadingSpecs: React.Dispatch<React.SetStateAction<Set<string>>>;
+}) {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    const toggleExpand = async () => {
+        if (isExpanded) {
+            setIsExpanded(false);
+        } else {
+            setIsExpanded(true);
+
+            // Fetch spec details if needed
+            if (item.spec_id && !specCache[item.spec_id]) {
+                setLoadingSpecs(prev => new Set(prev).add(item.spec_id!));
+                try {
+                    const spec = await api.getSpec(item.spec_id);
+                    setSpecCache(prev => ({ ...prev, [item.spec_id!]: spec as Spec }));
+                } catch (e) {
+                    console.error('Failed to load spec:', e);
+                } finally {
+                    setLoadingSpecs(prev => {
+                        const next = new Set(prev);
+                        next.delete(item.spec_id!);
+                        return next;
+                    });
+                }
+            }
+        }
+    };
+
+    const renderTaskProgress = () => {
+        if (!item.spec_id) return null;
+
+        // Loading state
+        if (loadingSpecs.has(item.spec_id)) {
+            return (
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                    <span className="animate-spin">⟳</span>
+                    <span>Loading tasks...</span>
+                </div>
+            );
+        }
+
+        // Get spec from cache
+        const spec = specCache[item.spec_id];
+        if (!spec?.taskGroups || spec.taskGroups.length === 0) {
+            return (
+                <div className="text-sm text-gray-500 italic">
+                    No tasks defined yet
+                </div>
+            );
+        }
+
+        // Render task groups and tasks
+        return (
+            <div className="space-y-2">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase">Tasks</h4>
+                {spec.taskGroups.map((group) => (
+                    <div key={group.id} className="space-y-1">
+                        {/* Task Group Header */}
+                        <div className="flex items-center gap-2 text-sm">
+                            <span>{getStatusIcon(group.status)}</span>
+                            <span className="font-medium text-gray-200">
+                                {group.name}
+                            </span>
+                            <span className="text-xs text-gray-500 capitalize">
+                                ({group.status.replace(/_/g, ' ')})
+                            </span>
+                        </div>
+
+                        {/* Tasks */}
+                        {group.tasks && group.tasks.length > 0 && (
+                            <div className="ml-6 space-y-0.5">
+                                {group.tasks.map((task) => (
+                                    <div key={task.id} className="flex items-start gap-2 text-sm">
+                                        <span className="text-gray-400 flex-shrink-0">
+                                            {getStatusIcon(task.status)}
+                                        </span>
+                                        <span className={`text-gray-300 ${task.status === 'done' ? 'line-through text-gray-500' : ''}`}>
+                                            {task.description}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    return (
+        <div className="bg-gray-800 rounded hover:bg-gray-750 transition-colors">
+            <div
+                className="p-3 cursor-pointer flex items-center gap-2"
+                onClick={toggleExpand}
+            >
+                <span className="text-gray-400 transition-transform" style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
+                    ›
+                </span>
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${STATUS_COLORS[item.status] || 'bg-gray-500'}`} />
+                <span className="font-medium flex-1">{item.title}</span>
+                <span className="text-xs text-gray-500 capitalize">{item.status.replace(/_/g, ' ')}</span>
+                {item.github_issue_url && (
+                    <a
+                        href={item.github_issue_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-400 hover:underline flex-shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        Issue
+                    </a>
+                )}
+            </div>
+
+            {isExpanded && (
+                <div className="px-3 pb-3 space-y-3 border-t border-gray-700 pt-3 mt-1">
+                    {item.description && (
+                        <p className="text-sm text-gray-300 whitespace-pre-wrap">{item.description}</p>
+                    )}
+                    {renderTaskProgress()}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export function RoadmapPanel() {
     const { roadmapItems, addRoadmapItem } = useStore();
     const [showAdd, setShowAdd] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDescription, setNewDescription] = useState('');
+    const [specCache, setSpecCache] = useState<Record<string, Spec>>({});
+    const [loadingSpecs, setLoadingSpecs] = useState<Set<string>>(new Set());
 
     const handleAdd = async () => {
         if (!newTitle.trim()) return;
@@ -70,30 +216,14 @@ export function RoadmapPanel() {
 
             <div className="space-y-2">
                 {roadmapItems.map((item) => (
-                    <div
+                    <RoadmapItemComponent
                         key={item.id}
-                        className="bg-gray-800 rounded p-3 hover:bg-gray-750 cursor-pointer"
-                    >
-                        <div className="flex items-center gap-2 mb-1">
-                            <span className={`w-2 h-2 rounded-full ${STATUS_COLORS[item.status] || 'bg-gray-500'}`} />
-                            <span className="font-medium">{item.title}</span>
-                        </div>
-                        <p className="text-sm text-gray-400 line-clamp-2">{item.description}</p>
-                        <div className="flex items-center gap-2 mt-2">
-                            <span className="text-xs text-gray-500 capitalize">{item.status.replace(/_/g, ' ')}</span>
-                            {item.github_issue_url && (
-                                <a
-                                    href={item.github_issue_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs text-blue-400 hover:underline"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    GitHub Issue
-                                </a>
-                            )}
-                        </div>
-                    </div>
+                        item={item}
+                        specCache={specCache}
+                        setSpecCache={setSpecCache}
+                        loadingSpecs={loadingSpecs}
+                        setLoadingSpecs={setLoadingSpecs}
+                    />
                 ))}
 
                 {roadmapItems.length === 0 && (
