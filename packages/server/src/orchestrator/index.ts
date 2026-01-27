@@ -8,6 +8,13 @@ import { WebSocketHub } from '../routes/ws.js';
 import { nanoid } from 'nanoid';
 import { getGitHubRepoInfo } from '../git/repo-info.js';
 
+interface ValidationResult {
+    success: boolean;
+    lint: { passed: boolean; errors?: string };
+    test: { passed: boolean; errors?: string };
+    build: { passed: boolean; errors?: string };
+}
+
 export class Orchestrator {
     private running = false;
     private mainClaude?: ClaudeInstance;
@@ -454,9 +461,24 @@ ${spec.content}
 
         console.log(`[Orchestrator] Spec ${specId} complete, applying resolution: ${resolutionMethod}`);
 
+        // Update to validating status
+        this.db.updateSpec(specId, { status: 'validating' });
+        console.log(`[Orchestrator] Spec ${specId} status: in_progress → validating`);
+
+        // Run validation
+        const validation = await this.validateSpec(spec);
+
+        if (!validation.success) {
+            console.error(`[Orchestrator] Spec ${specId} failed validation`);
+            await this.handleValidationFailure(spec, validation);
+            return;
+        }
+
+        console.log(`[Orchestrator] Spec ${specId} passed validation, proceeding to resolution`);
+
         // Update to merging status
         this.db.updateSpec(specId, { status: 'merging' });
-        console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
+        console.log(`[Orchestrator] Spec ${specId} status: validating → merging`);
 
         // Apply resolution method
         try {
@@ -475,6 +497,102 @@ ${spec.content}
                 status: 'error',
                 error_message: String(error)
             });
+        }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
+    }
+
+    private async validateSpec(spec: Spec): Promise<ValidationResult> {
+        if (!spec.worktree_name) {
+            return {
+                success: false,
+                lint: { passed: false, errors: 'No worktree available' },
+                test: { passed: true },
+                build: { passed: true },
+            };
+        }
+
+        const wtPath = await this.git.getWorktreePath(spec.worktree_name);
+        const result: ValidationResult = {
+            success: true,
+            lint: { passed: true },
+            test: { passed: true },
+            build: { passed: true },
+        };
+
+        // Run lint
+        try {
+            console.log(`[Orchestrator] Running lint for spec ${spec.id}`);
+            const { execSync } = await import('child_process');
+            execSync('npm run lint', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
+            result.lint = { passed: true };
+        } catch (error: any) {
+            result.success = false;
+            const errorOutput = error.stdout?.toString() || error.stderr?.toString() || error.message;
+            result.lint = {
+                passed: false,
+                errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
+            };
+            console.error(`[Orchestrator] Lint failed for spec ${spec.id}:`, result.lint.errors);
+        }
+
+        // Run build (only if lint passed)
+        if (result.success) {
+            try {
+                console.log(`[Orchestrator] Running build for spec ${spec.id}`);
+                const { execSync } = await import('child_process');
+                execSync('npm run build', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
+                result.build = { passed: true };
+            } catch (error: any) {
+                result.success = false;
+                const errorOutput = error.stdout?.toString() || error.stderr?.toString() || error.message;
+                result.build = {
+                    passed: false,
+                    errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
+                };
+                console.error(`[Orchestrator] Build failed for spec ${spec.id}:`, result.build.errors);
+            }
+        }
+
+        // Tests (if test script exists in future)
+        // Skip for now as there's no root-level test script
+
+        return result;
+    }
+
+    private async handleValidationFailure(spec: Spec, validation: ValidationResult): Promise<void> {
+        const errorParts: string[] = ['Pre-resolution validation failed:'];
+
+        if (!validation.lint.passed) {
+            errorParts.push(`\nLint errors:\n${validation.lint.errors}`);
+        }
+        if (!validation.test.passed) {
+            errorParts.push(`\nTest failures:\n${validation.test.errors}`);
+        }
+        if (!validation.build.passed) {
+            errorParts.push(`\nBuild errors:\n${validation.build.errors}`);
+        }
+
+        const errorMessage = errorParts.join('\n');
+
+        // Update spec status to error
+        this.db.updateSpec(spec.id, {
+            status: 'error',
+            error_message: errorMessage,
+        });
+
+        console.log(`[Orchestrator] Spec ${spec.id} status: validating → error`);
+
+        // Notify main Claude
+        if (this.mainClaude) {
+            await this.mainClaude.sendMessage(`
+Spec ${spec.id} failed pre-resolution validation and has been marked as error.
+
+${errorMessage}
+
+Please review the errors in worktree "${spec.worktree_name}", fix the issues, and update the spec status back to in_progress when ready.
+            `);
         }
 
         // Broadcast state update
