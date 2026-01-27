@@ -302,7 +302,7 @@ async function getContainerPort(container: Docker.Container): Promise<number> {
     return parseInt(portLabel, 10);
 }
 
-async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string }> {
+async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string; isNew: boolean }> {
     const name = containerName(info);
     const volume = volumeName(info);
 
@@ -314,14 +314,14 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         if (existing.State === 'running') {
             const port = parseInt(existing.Labels['devswarm.port'], 10);
             console.log(`Container already running on port ${port}`);
-            return { port, containerId: existing.Id };
+            return { port, containerId: existing.Id, isNew: false };
         }
 
         const container = docker.getContainer(existing.Id);
         await container.start();
         const port = parseInt(existing.Labels['devswarm.port'], 10);
         console.log(`Resumed container on port ${port}`);
-        return { port, containerId: existing.Id };
+        return { port, containerId: existing.Id, isNew: false };
     }
 
     // Ensure image is available
@@ -390,7 +390,7 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
     await container.start();
     console.log(`Started container on port ${port}`);
 
-    return { port, containerId: container.id };
+    return { port, containerId: container.id, isNew: true };
 }
 
 async function followLogs(containerId: string, onReady: () => void): Promise<void> {
@@ -535,24 +535,46 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
     // Default to pulling unless --skip-pull is provided
     const forcePull = !options.skipPull;
 
-    const { port, containerId } = await startContainer(info, tag, forcePull);
+    const { port, containerId, isNew } = await startContainer(info, tag, forcePull);
 
     if (options.attach) {
-        // Attached mode: follow logs, open browser, block terminal
-        followLogs(containerId, () => {
+        // Attached mode: follow logs and open browser
+        console.log('Attaching to container logs...');
+
+        if (isNew) {
+            // For new containers, wait for ready signal
+            followLogs(containerId, () => {
+                console.log(`\nOpening http://localhost:${port}`);
+                open(`http://localhost:${port}`);
+            });
+        } else {
+            // For existing containers, open browser immediately and follow logs
             console.log(`\nOpening http://localhost:${port}`);
             open(`http://localhost:${port}`);
-        });
 
+            // Follow logs without callback (already ready)
+            const container = docker.getContainer(containerId);
+            const stream = await container.logs({
+                follow: true,
+                stdout: true,
+                stderr: true,
+                tail: 50
+            });
+
+            stream.on('data', (chunk: Buffer) => {
+                process.stdout.write(chunk.toString());
+            });
+        }
+
+        // Handle Ctrl+C gracefully in attach mode
         process.on('SIGINT', async () => {
-            console.log('\nInitiating graceful shutdown...');
-            try {
-                await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
-            } catch {
-                // Server may already be down
-            }
+            console.log('\nDetaching from logs (container will continue running)');
+            console.log(`To stop the container: devswarm stop ${info.owner}/${info.repo}`);
             process.exit(0);
         });
+
+        // Keep process alive
+        await new Promise(() => {}); // Block forever
     } else {
         // Detached mode: print info and return
         console.log(`\n✓ Container started successfully`);
