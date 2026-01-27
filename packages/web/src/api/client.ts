@@ -47,7 +47,7 @@ export const api = {
             body: JSON.stringify({ title, description, resolution_method }),
         }),
 
-    updateRoadmapItem: (id: string, updates: { title?: string; description?: string; status?: string }) =>
+    updateRoadmapItem: (id: string, updates: { title?: string; description?: string; status?: string; resolution_method?: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual' }) =>
         request<unknown>(`/api/roadmap/${id}`, {
             method: 'PATCH',
             body: JSON.stringify(updates),
