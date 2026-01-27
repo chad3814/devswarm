@@ -1,5 +1,5 @@
 import { Db } from '../db/index.js';
-import { mkdirSync, rmSync } from 'fs';
+import { rmSync } from 'fs';
 import path from 'path';
 
 // Create a temporary test database

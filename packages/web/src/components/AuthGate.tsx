@@ -19,7 +19,7 @@ export function AuthGate({ authStatus }: AuthGateProps) {
             setGithubCode(result.userCode);
             setGithubUrl(result.verificationUri);
             setPolling(true);
-        } catch (e) {
+        } catch {
             setError('Failed to start GitHub authentication');
         }
     };
@@ -43,7 +43,7 @@ export function AuthGate({ authStatus }: AuthGateProps) {
                     setError(result.error);
                     setPolling(false);
                 }
-            } catch (e) {
+            } catch {
                 // Keep polling
             }
         }, 5000);

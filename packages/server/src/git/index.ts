@@ -1,9 +1,9 @@
-import { exec as execCb, spawn } from 'child_process';
+import { execFile as execFileCb, spawn } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import fs from 'fs';
 
-const exec = promisify(execCb);
+const execFile = promisify(execFileCb);
 
 export interface MergeResult {
     success: boolean;
@@ -22,7 +22,7 @@ export class GitManager {
 
     async init(repoUrl: string): Promise<void> {
         // Clone as bare repo
-        await exec(`git clone --bare ${repoUrl} ${this.bareRepoPath}`);
+        await execFile('git', ['clone', '--bare', repoUrl, this.bareRepoPath]);
 
         // Create worktrees directory
         fs.mkdirSync(this.worktreesPath, { recursive: true });
@@ -48,8 +48,8 @@ export class GitManager {
         }).unref();
     }
 
-    private async git(args: string, cwd?: string): Promise<string> {
-        const { stdout } = await exec(`git ${args}`, { cwd: cwd || this.bareRepoPath });
+    private async git(args: string[], cwd?: string): Promise<string> {
+        const { stdout } = await execFile('git', args, { cwd: cwd || this.bareRepoPath });
         return stdout.trim();
     }
 
@@ -73,14 +73,14 @@ export class GitManager {
         // Check if branch exists without worktree (stale branch)
         if (name !== 'main' && await this.branchExists(branchName)) {
             console.log(`[GitManager] Branch ${branchName} exists without worktree, removing branch`);
-            await this.git(`branch -D ${branchName}`);
+            await this.git(['branch', '-D', branchName]);
         }
 
         // Create new worktree
         if (name === 'main') {
-            await this.git(`worktree add ${wtPath} ${baseBranch}`);
+            await this.git(['worktree', 'add', wtPath, baseBranch]);
         } else {
-            await this.git(`worktree add -b ${branchName} ${wtPath} ${baseBranch}`);
+            await this.git(['worktree', 'add', '-b', branchName, wtPath, baseBranch]);
         }
 
         console.log(`[GitManager] Created new worktree ${name}`);
@@ -89,12 +89,12 @@ export class GitManager {
 
     async forkWorktree(sourceName: string, newName: string): Promise<string> {
         const sourceWt = path.join(this.worktreesPath, sourceName);
-        const sourceCommit = await this.git('rev-parse HEAD', sourceWt);
+        const sourceCommit = await this.git(['rev-parse', 'HEAD'], sourceWt);
 
         const wtPath = path.join(this.worktreesPath, newName);
         const branchName = `devswarm/${newName}`;
 
-        await this.git(`worktree add -b ${branchName} ${wtPath} ${sourceCommit}`);
+        await this.git(['worktree', 'add', '-b', branchName, wtPath, sourceCommit]);
 
         return wtPath;
     }
@@ -105,24 +105,24 @@ export class GitManager {
 
     async getCurrentBranch(worktreeName: string): Promise<string> {
         const wtPath = path.join(this.worktreesPath, worktreeName);
-        return this.git('rev-parse --abbrev-ref HEAD', wtPath);
+        return this.git(['rev-parse', '--abbrev-ref', 'HEAD'], wtPath);
     }
 
     async commit(worktreeName: string, message: string): Promise<string> {
         const wtPath = path.join(this.worktreesPath, worktreeName);
-        await this.git('add -A', wtPath);
+        await this.git(['add', '-A'], wtPath);
 
         try {
-            await this.git(`commit -m "${message.replace(/"/g, '\\"')}"`, wtPath);
+            await this.git(['commit', '-m', message], wtPath);
         } catch (e: unknown) {
             const err = e as Error;
             if (err.message.includes('nothing to commit')) {
-                return await this.git('rev-parse HEAD', wtPath);
+                return await this.git(['rev-parse', 'HEAD'], wtPath);
             }
             throw e;
         }
 
-        return this.git('rev-parse HEAD', wtPath);
+        return this.git(['rev-parse', 'HEAD'], wtPath);
     }
 
     async merge(sourceWorktreeName: string, targetWorktreeName: string): Promise<MergeResult> {
@@ -130,7 +130,7 @@ export class GitManager {
         const sourceBranch = await this.getCurrentBranch(sourceWorktreeName);
 
         try {
-            await this.git(`merge ${sourceBranch} --no-edit`, targetWt);
+            await this.git(['merge', sourceBranch, '--no-edit', '--no-ff', '--no-squash'], targetWt);
             return { success: true, conflicts: [] };
         } catch (e: unknown) {
             const err = e as Error;
@@ -144,18 +144,18 @@ export class GitManager {
 
     async getConflictFiles(worktreeName: string): Promise<string[]> {
         const wtPath = path.join(this.worktreesPath, worktreeName);
-        const output = await this.git('diff --name-only --diff-filter=U', wtPath);
+        const output = await this.git(['diff', '--name-only', '--diff-filter=U'], wtPath);
         return output.split('\n').filter(Boolean);
     }
 
     async abortMerge(worktreeName: string): Promise<void> {
         const wtPath = path.join(this.worktreesPath, worktreeName);
-        await this.git('merge --abort', wtPath);
+        await this.git(['merge', '--abort'], wtPath);
     }
 
     async removeWorktree(name: string): Promise<void> {
         const wtPath = path.join(this.worktreesPath, name);
-        await this.git(`worktree remove ${wtPath} --force`);
+        await this.git(['worktree', 'remove', wtPath, '--force']);
     }
 
     async hasUnpushedCommits(worktreeName: string): Promise<boolean> {
@@ -164,7 +164,7 @@ export class GitManager {
 
         try {
             // Check if there are commits on local branch not on remote
-            const output = await this.git(`rev-list origin/${branch}..${branch} --count`, wtPath);
+            const output = await this.git(['rev-list', `origin/${branch}..${branch}`, '--count'], wtPath);
             const count = parseInt(output.trim(), 10);
             return count > 0;
         } catch (error: unknown) {
@@ -184,7 +184,7 @@ export class GitManager {
         const branch = await this.getCurrentBranch(worktreeName);
 
         try {
-            await this.git(`push origin ${branch}`, wtPath);
+            await this.git(['push', 'origin', branch], wtPath);
             console.log(`[GitManager] Successfully pushed ${branch} to origin from worktree ${worktreeName}`);
         } catch (error: unknown) {
             const err = error as Error & { stderr?: string };
@@ -211,7 +211,7 @@ export class GitManager {
     }
 
     async listWorktrees(): Promise<string[]> {
-        const output = await this.git('worktree list --porcelain');
+        const output = await this.git(['worktree', 'list', '--porcelain']);
         const worktrees: string[] = [];
 
         for (const line of output.split('\n')) {
@@ -233,7 +233,7 @@ export class GitManager {
                 return false;
             }
             // Check if it's a valid git worktree
-            await this.git('rev-parse --is-inside-work-tree', wtPath);
+            await this.git(['rev-parse', '--is-inside-work-tree'], wtPath);
             return true;
         } catch {
             return false;
@@ -242,7 +242,7 @@ export class GitManager {
 
     private async branchExists(branchName: string): Promise<boolean> {
         try {
-            await this.git(`rev-parse --verify ${branchName}`);
+            await this.git(['rev-parse', '--verify', branchName]);
             return true;
         } catch {
             return false;
@@ -258,14 +258,57 @@ export class GitManager {
         const branch = await this.getCurrentBranch(worktreeName);
 
         // Push branch
-        await this.git(`push -u origin ${branch}`, wtPath);
+        await this.git(['push', '-u', 'origin', branch], wtPath);
 
-        // Create PR using gh CLI
-        const { stdout } = await exec(
-            `gh pr create --title "${title.replace(/"/g, '\\"')}" --body "${body.replace(/"/g, '\\"')}" --json url,number`,
-            { cwd: wtPath }
-        );
+        // Create PR using gh CLI with spawn for safe argument passing
+        // Note: The merge method (squash, merge commit, or rebase) is controlled by
+        // GitHub repository settings when the PR is merged. This command only creates
+        // the PR. To preserve full commit history, repository administrators should
+        // configure the repo to allow/default to "merge commits" rather than "squash and merge".
+        return new Promise((resolve, reject) => {
+            // Explicitly pass environment variables to spawned process.
+            // GH_TOKEN is required for GitHub CLI authentication (from process.env or gh config).
+            // HOME is required so gh CLI can find its config at ~/.config/gh/
+            const gh = spawn('gh', [
+                'pr', 'create',
+                '--title', title,
+                '--body', body,
+                '--json', 'url,number'
+            ], {
+                cwd: wtPath,
+                env: {
+                    ...process.env,
+                    GH_TOKEN: process.env.GH_TOKEN || '',
+                    HOME: process.env.HOME || '/home/devswarm'
+                }
+            });
 
-        return JSON.parse(stdout);
+            let stdout = '';
+            let stderr = '';
+
+            gh.stdout.on('data', (data) => {
+                stdout += data.toString();
+            });
+
+            gh.stderr.on('data', (data) => {
+                stderr += data.toString();
+            });
+
+            gh.on('close', (code) => {
+                if (code === 0) {
+                    try {
+                        resolve(JSON.parse(stdout));
+                    } catch (error) {
+                        reject(new Error(`Failed to parse gh output: ${error}`));
+                    }
+                } else {
+                    reject(new Error(`gh pr create failed with code ${code}: ${stderr}`));
+                }
+            });
+
+            gh.on('error', (error) => {
+                reject(error);
+            });
+        });
     }
 }

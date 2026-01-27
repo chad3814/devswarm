@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useStore, RoadmapItem, Spec } from '../../stores/store';
+import { useStore, RoadmapItem } from '../../stores/store';
 import { api } from '../../api/client';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -24,14 +24,39 @@ const getStatusIcon = (status: string): string => {
     }
 };
 
-function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, setLoadingSpecs }: {
+const getResolutionDescription = (method: string | undefined): string => {
+    switch (method) {
+        case 'merge_and_push':
+            return 'Automatically merge to main and push when complete';
+        case 'create_pr':
+            return 'Create a pull request for review when complete';
+        case 'push_branch':
+            return 'Push the branch without merging when complete';
+        case 'manual':
+            return 'Main Claude will handle completion manually';
+        default:
+            return 'Automatically merge to main and push when complete';
+    }
+};
+
+function RoadmapItemComponent({ item, loadingSpecs, setLoadingSpecs }: {
     item: RoadmapItem;
-    specCache: Record<string, Spec>;
-    setSpecCache: React.Dispatch<React.SetStateAction<Record<string, Spec>>>;
     loadingSpecs: Set<string>;
     setLoadingSpecs: React.Dispatch<React.SetStateAction<Set<string>>>;
 }) {
     const [isExpanded, setIsExpanded] = useState(false);
+    const { specs, fetchSpec } = useStore();
+
+    const handleResolutionChange = async (itemId: string, newMethod: string) => {
+        try {
+            await api.updateRoadmapItem(itemId, {
+                resolution_method: newMethod as 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual'
+            });
+            // The WebSocket broadcast will update the store automatically
+        } catch (e) {
+            console.error('Failed to update resolution method:', e);
+        }
+    };
 
     const toggleExpand = async () => {
         if (isExpanded) {
@@ -40,19 +65,21 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
             setIsExpanded(true);
 
             // Fetch spec details if needed
-            if (item.spec_id && !specCache[item.spec_id]) {
-                setLoadingSpecs(prev => new Set(prev).add(item.spec_id!));
-                try {
-                    const spec = await api.getSpec(item.spec_id);
-                    setSpecCache(prev => ({ ...prev, [item.spec_id!]: spec as Spec }));
-                } catch (e) {
-                    console.error('Failed to load spec:', e);
-                } finally {
-                    setLoadingSpecs(prev => {
-                        const next = new Set(prev);
-                        next.delete(item.spec_id!);
-                        return next;
-                    });
+            if (item.spec_id) {
+                const cached = specs.find((s) => s.id === item.spec_id);
+                if (!cached || !cached.taskGroups) {
+                    setLoadingSpecs(prev => new Set(prev).add(item.spec_id!));
+                    try {
+                        await fetchSpec(item.spec_id);
+                    } catch (e) {
+                        console.error('Failed to load spec:', e);
+                    } finally {
+                        setLoadingSpecs(prev => {
+                            const next = new Set(prev);
+                            next.delete(item.spec_id!);
+                            return next;
+                        });
+                    }
                 }
             }
         }
@@ -71,8 +98,8 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
             );
         }
 
-        // Get spec from cache
-        const spec = specCache[item.spec_id];
+        // Get spec from store
+        const spec = specs.find((s) => s.id === item.spec_id);
         if (!spec?.taskGroups || spec.taskGroups.length === 0) {
             return (
                 <div className="text-sm text-gray-500 italic">
@@ -156,6 +183,28 @@ function RoadmapItemComponent({ item, specCache, setSpecCache, loadingSpecs, set
                     {item.description && (
                         <p className="text-sm text-gray-300 whitespace-pre-wrap">{item.description}</p>
                     )}
+
+                    {/* Resolution Method Editor */}
+                    {item.status !== 'done' && (
+                        <div>
+                            <label className="block text-xs text-gray-400 mb-1">Resolution Method</label>
+                            <select
+                                value={item.resolution_method || 'merge_and_push'}
+                                onChange={(e) => handleResolutionChange(item.id, e.target.value)}
+                                className="w-full bg-gray-700 rounded px-3 py-1.5 text-sm"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <option value="merge_and_push">🔀 Merge and Push (Recommended)</option>
+                                <option value="create_pr">🔃 Create Pull Request</option>
+                                <option value="push_branch">📤 Push Branch Only</option>
+                                <option value="manual">✋ Manual</option>
+                            </select>
+                            <p className="text-xs text-gray-500 mt-1">
+                                {getResolutionDescription(item.resolution_method)}
+                            </p>
+                        </div>
+                    )}
+
                     {renderTaskProgress()}
                 </div>
             )}
@@ -168,7 +217,6 @@ export function RoadmapPanel() {
     const [showAdd, setShowAdd] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newDescription, setNewDescription] = useState('');
-    const [specCache, setSpecCache] = useState<Record<string, Spec>>({});
     const [loadingSpecs, setLoadingSpecs] = useState<Set<string>>(new Set());
     const [resolutionMethod, setResolutionMethod] = useState('merge_and_push');
 
@@ -249,8 +297,6 @@ export function RoadmapPanel() {
                     <RoadmapItemComponent
                         key={item.id}
                         item={item}
-                        specCache={specCache}
-                        setSpecCache={setSpecCache}
                         loadingSpecs={loadingSpecs}
                         setLoadingSpecs={setLoadingSpecs}
                     />

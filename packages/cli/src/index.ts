@@ -7,7 +7,7 @@ import { program } from 'commander';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
-import { execSync, spawn } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 import * as readline from 'readline';
 import { fileURLToPath } from 'url';
 
@@ -143,7 +143,8 @@ function saveCredentials(creds: Credentials): void {
 
 function getGhTokenFromCli(): string | null {
     try {
-        return execSync('gh auth token', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+        const result = spawnSync('gh', ['auth', 'token'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        return result.status === 0 ? result.stdout.trim() : null;
     } catch {
         return null;
     }
@@ -151,8 +152,8 @@ function getGhTokenFromCli(): string | null {
 
 function isGhAuthenticated(): boolean {
     try {
-        execSync('gh auth status', { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
-        return true;
+        const result = spawnSync('gh', ['auth', 'status'], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+        return result.status === 0;
     } catch {
         return false;
     }
@@ -302,7 +303,7 @@ async function getContainerPort(container: Docker.Container): Promise<number> {
     return parseInt(portLabel, 10);
 }
 
-async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string }> {
+async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string; isNew: boolean }> {
     const name = containerName(info);
     const volume = volumeName(info);
 
@@ -314,14 +315,14 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         if (existing.State === 'running') {
             const port = parseInt(existing.Labels['devswarm.port'], 10);
             console.log(`Container already running on port ${port}`);
-            return { port, containerId: existing.Id };
+            return { port, containerId: existing.Id, isNew: false };
         }
 
         const container = docker.getContainer(existing.Id);
         await container.start();
         const port = parseInt(existing.Labels['devswarm.port'], 10);
         console.log(`Resumed container on port ${port}`);
-        return { port, containerId: existing.Id };
+        return { port, containerId: existing.Id, isNew: false };
     }
 
     // Ensure image is available
@@ -390,7 +391,7 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
     await container.start();
     console.log(`Started container on port ${port}`);
 
-    return { port, containerId: container.id };
+    return { port, containerId: container.id, isNew: true };
 }
 
 async function followLogs(containerId: string, onReady: () => void): Promise<void> {
@@ -399,15 +400,32 @@ async function followLogs(containerId: string, onReady: () => void): Promise<voi
 
     let ready = false;
 
-    stream.on('data', (chunk: Buffer) => {
-        const line = chunk.toString();
-        process.stdout.write(line);
+    // Create writable streams that can detect the ready signal
+    const stdoutProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stdout.write(chunk);
 
-        if (!ready && line.includes('Server listening on port')) {
-            ready = true;
-            onReady();
+            // Check for ready signal in stdout
+            if (!ready) {
+                const line = chunk.toString();
+                if (line.includes('Server listening on port')) {
+                    ready = true;
+                    onReady();
+                }
+            }
+            callback();
         }
     });
+
+    const stderrProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stderr.write(chunk);
+            callback();
+        }
+    });
+
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, stdoutProxy, stderrProxy);
 }
 
 async function listContainers(): Promise<void> {
@@ -518,13 +536,66 @@ async function tailLogs(repoArg: string): Promise<void> {
     const container = docker.getContainer(containers[0].Id);
     const stream = await container.logs({ follow: true, stdout: true, stderr: true, tail: 100 });
 
-    stream.on('data', (chunk: Buffer) => {
-        process.stdout.write(chunk.toString());
-    });
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, process.stdout, process.stderr);
 
     process.on('SIGINT', () => {
         process.exit(0);
     });
+}
+
+/**
+ * Stream container logs and return cleanup function
+ */
+async function streamContainerLogs(
+    containerId: string,
+    onReady?: () => void
+): Promise<{ cleanup: () => void }> {
+    const container = docker.getContainer(containerId);
+    const stream = await container.logs({
+        follow: true,
+        stdout: true,
+        stderr: true,
+        tail: 50
+    });
+
+    let readyTriggered = false;
+
+    // Create writable streams that can detect the ready signal
+    const stdoutProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stdout.write(chunk);
+
+            // Check for ready signal in stdout
+            if (!readyTriggered && onReady) {
+                const line = chunk.toString();
+                if (line.includes('Server listening on port')) {
+                    readyTriggered = true;
+                    onReady();
+                }
+            }
+            callback();
+        }
+    });
+
+    const stderrProxy = new (await import('stream')).Writable({
+        write(chunk: Buffer, encoding: string, callback: () => void) {
+            process.stderr.write(chunk);
+            callback();
+        }
+    });
+
+    // Demultiplex the Docker log stream into stdout and stderr
+    docker.modem.demuxStream(stream, stdoutProxy, stderrProxy);
+
+    const cleanup = () => {
+        // The stream is a Node.js readable stream that supports destroy
+        (stream as any).destroy();
+        stdoutProxy.end();
+        stderrProxy.end();
+    };
+
+    return { cleanup };
 }
 
 async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean } = {}): Promise<void> {
@@ -535,24 +606,54 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
     // Default to pulling unless --skip-pull is provided
     const forcePull = !options.skipPull;
 
-    const { port, containerId } = await startContainer(info, tag, forcePull);
+    const { port, containerId, isNew } = await startContainer(info, tag, forcePull);
 
     if (options.attach) {
-        // Attached mode: follow logs, open browser, block terminal
-        followLogs(containerId, () => {
-            console.log(`\nOpening http://localhost:${port}`);
-            open(`http://localhost:${port}`);
+        console.log('Attaching to container logs...');
+
+        // Set up resolvable promise for blocking
+        let detachResolve: (() => void) | null = null;
+        const blockUntilDetach = new Promise<void>((resolve) => {
+            detachResolve = resolve;
         });
 
-        process.on('SIGINT', async () => {
-            console.log('\nInitiating graceful shutdown...');
-            try {
-                await fetch(`http://localhost:${port}/shutdown`, { method: 'POST' });
-            } catch {
-                // Server may already be down
+        // Stream logs with proper cleanup
+        const { cleanup } = await streamContainerLogs(
+            containerId,
+            isNew ? () => {
+                // For new containers, open browser when ready
+                console.log(`\nOpening http://localhost:${port}`);
+                open(`http://localhost:${port}`);
+            } : undefined
+        );
+
+        // For existing containers, open browser immediately
+        if (!isNew) {
+            console.log(`\nOpening http://localhost:${port}`);
+            open(`http://localhost:${port}`);
+        }
+
+        // Handle Ctrl+C gracefully
+        const sigintHandler = async () => {
+            console.log('\nDetaching from logs (container will continue running)');
+            console.log(`To stop the container: devswarm stop ${info.owner}/${info.repo}`);
+
+            // Clean up stream
+            cleanup();
+
+            // Resolve the blocking promise
+            if (detachResolve) {
+                detachResolve();
             }
-            process.exit(0);
-        });
+
+            // Remove this handler to prevent accumulation
+            process.off('SIGINT', sigintHandler);
+        };
+
+        process.on('SIGINT', sigintHandler);
+
+        // Block until SIGINT
+        await blockUntilDetach;
     } else {
         // Detached mode: print info and return
         console.log(`\n✓ Container started successfully`);
@@ -560,6 +661,13 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
         console.log(`  Container ID: ${containerId.substring(0, 12)}`);
         console.log(`\nTo view logs: devswarm logs ${info.owner}/${info.repo}`);
         console.log(`To stop: devswarm stop ${info.owner}/${info.repo}`);
+
+        // Open browser (non-blocking, errors are ignored)
+        try {
+            await open(`http://localhost:${port}`);
+        } catch (error) {
+            // Silently ignore browser opening errors - not critical to operation
+        }
     }
 }
 
@@ -625,7 +733,7 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
 }
 
 program
-    .command('start <repo>')
+    .command('start <repo>', { isDefault: true })
     .description('Start or attach to an orchestrator for a repository (pulls latest image by default)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
     .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
@@ -668,20 +776,5 @@ program
     .command('logs <repo>')
     .description('Tail logs from an orchestrator')
     .action(tailLogs);
-
-// Default command - if just a repo is provided
-program
-    .argument('[repo]', 'Repository to orchestrate (owner/repo or full URL)')
-    .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
-    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
-    .option('--attach', 'Follow logs and open browser (stays in foreground)')
-    .action(async (repo, options) => {
-        if (repo) {
-            await startOrAttach(repo, options);
-        } else {
-            program.help();
-        }
-    });
 
 program.parse();

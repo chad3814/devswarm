@@ -36,12 +36,25 @@ export class WebSocketHub {
         const specs = db.getSpecs();
         const claudeInstances = db.getClaudeInstances({ status: 'running' });
 
+        // Include task groups with tasks for all specs
+        const taskGroupsBySpec: Record<string, unknown[]> = {};
+        for (const spec of specs) {
+            const taskGroups = db.getTaskGroupsForSpec(spec.id);
+            // For each task group, fetch its tasks
+            const taskGroupsWithTasks = taskGroups.map(tg => ({
+                ...tg,
+                tasks: db.getTasksForGroup(tg.id)
+            }));
+            taskGroupsBySpec[spec.id] = taskGroupsWithTasks;
+        }
+
         this.broadcast({
             type: 'state',
             payload: {
                 roadmapItems,
                 specs,
                 claudeInstances,
+                taskGroupsBySpec,
             },
         });
     }
@@ -108,6 +121,20 @@ export class WebSocketHub {
         this.broadcast({
             type: 'claude_update',
             instance,
+        });
+    }
+
+    broadcastTaskGroupUpdate(taskGroup: object): void {
+        this.broadcast({
+            type: 'task_group_update',
+            taskGroup,
+        });
+    }
+
+    broadcastTaskUpdate(task: object): void {
+        this.broadcast({
+            type: 'task_update',
+            task,
         });
     }
 

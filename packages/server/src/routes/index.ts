@@ -25,6 +25,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return { status: 'ok' };
     });
 
+    // Repository info
+    app.get('/api/repository', async () => {
+        return {
+            owner: config.repoOwner,
+            name: config.repoName,
+        };
+    });
+
     // Auth routes
     app.get('/api/auth/status', async () => {
         const ghAuthed = await ghAuth.isAuthenticated();
@@ -217,6 +225,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             branch_name: null,
         });
 
+        app.wsHub.broadcastTaskGroupUpdate(taskGroup);
         return taskGroup;
     });
 
@@ -227,6 +236,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.db.updateTaskGroup(id, updates);
         const taskGroup = app.db.getTaskGroup(id);
 
+        app.wsHub.broadcastTaskGroupUpdate(taskGroup!);
         return taskGroup;
     });
 
@@ -242,6 +252,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             sequence_order: sequence_order || 0,
         });
 
+        app.wsHub.broadcastTaskUpdate(task);
         return task;
     });
 
@@ -252,6 +263,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.db.updateTask(id, updates);
         const task = app.db.getTask(id);
 
+        app.wsHub.broadcastTaskUpdate(task!);
         return task;
     });
 

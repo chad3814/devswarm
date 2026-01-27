@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { api } from '../api/client';
 
 export interface RoadmapItem {
     id: string;
@@ -67,9 +68,15 @@ interface AuthStatus {
     ready: boolean;
 }
 
+interface RepositoryInfo {
+    owner: string;
+    name: string;
+}
+
 interface OrchestratorState {
     // Auth
     authStatus: AuthStatus | null;
+    repositoryInfo: RepositoryInfo | null;
 
     // Data
     roadmapItems: RoadmapItem[];
@@ -84,11 +91,13 @@ interface OrchestratorState {
 
     // Actions
     setAuthStatus: (status: AuthStatus | null) => void;
+    setRepositoryInfo: (info: RepositoryInfo | null) => void;
     setRoadmapItems: (items: RoadmapItem[]) => void;
     updateRoadmapItem: (item: RoadmapItem) => void;
     addRoadmapItem: (item: RoadmapItem) => void;
     setSpecs: (specs: Spec[]) => void;
     updateSpec: (spec: Spec) => void;
+    fetchSpec: (specId: string) => Promise<Spec>;
     setClaudeInstances: (instances: ClaudeInstance[]) => void;
     updateClaudeInstance: (instance: ClaudeInstance) => void;
     addQuestion: (question: Question) => void;
@@ -97,12 +106,15 @@ interface OrchestratorState {
     setShowShutdownConfirm: (show: boolean) => void;
     addClaudeMessage: (message: ClaudeMessage) => void;
     getInstanceMessages: (instanceId: string) => ClaudeMessage[];
+    updateTaskGroup: (taskGroup: TaskGroup) => void;
+    updateTask: (task: Task) => void;
 }
 
 const MAX_MESSAGES_NON_MAIN = 10;
 
 export const useStore = create<OrchestratorState>((set, get) => ({
     authStatus: null,
+    repositoryInfo: null,
     roadmapItems: [],
     specs: [],
     claudeInstances: [],
@@ -112,6 +124,8 @@ export const useStore = create<OrchestratorState>((set, get) => ({
     showShutdownConfirm: false,
 
     setAuthStatus: (authStatus) => set({ authStatus }),
+
+    setRepositoryInfo: (repositoryInfo) => set({ repositoryInfo }),
 
     setRoadmapItems: (roadmapItems) => set({ roadmapItems }),
 
@@ -131,6 +145,36 @@ export const useStore = create<OrchestratorState>((set, get) => ({
         set((state) => ({
             specs: state.specs.map((s) => (s.id === spec.id ? spec : s)),
         })),
+
+    fetchSpec: async (specId) => {
+        const { specs } = get();
+
+        // Check if already cached with full data
+        const cached = specs.find((s) => s.id === specId);
+        if (cached && cached.taskGroups) {
+            return cached; // Already have full spec with task groups
+        }
+
+        try {
+            const spec = (await api.getSpec(specId)) as Spec;
+
+            set((state) => {
+                // Replace or add spec in array
+                const existingIndex = state.specs.findIndex((s) => s.id === specId);
+                const updatedSpecs: Spec[] =
+                    existingIndex >= 0
+                        ? state.specs.map((s, i) => (i === existingIndex ? spec : s))
+                        : [...state.specs, spec];
+
+                return { specs: updatedSpecs };
+            });
+
+            return spec;
+        } catch (error) {
+            console.error('Failed to fetch spec:', error);
+            throw error;
+        }
+    },
 
     setClaudeInstances: (claudeInstances) => set({ claudeInstances }),
 
@@ -179,4 +223,47 @@ export const useStore = create<OrchestratorState>((set, get) => ({
     getInstanceMessages: (instanceId) => {
         return get().instanceMessages[instanceId] || [];
     },
+
+    updateTaskGroup: (taskGroup) =>
+        set((state) => {
+            // Find the spec containing this task group
+            const updatedSpecs = state.specs.map((spec) => {
+                if (!spec.taskGroups) return spec;
+
+                const hasTaskGroup = spec.taskGroups.some((tg) => tg.id === taskGroup.id);
+                if (!hasTaskGroup) return spec;
+
+                return {
+                    ...spec,
+                    taskGroups: spec.taskGroups.map((tg) =>
+                        tg.id === taskGroup.id ? { ...taskGroup, tasks: tg.tasks } : tg
+                    ),
+                };
+            });
+
+            return { specs: updatedSpecs };
+        }),
+
+    updateTask: (task) =>
+        set((state) => {
+            // Find the spec and task group containing this task
+            const updatedSpecs = state.specs.map((spec) => {
+                if (!spec.taskGroups) return spec;
+
+                const hasTask = spec.taskGroups.some((tg) =>
+                    tg.tasks.some((t) => t.id === task.id)
+                );
+                if (!hasTask) return spec;
+
+                return {
+                    ...spec,
+                    taskGroups: spec.taskGroups.map((tg) => ({
+                        ...tg,
+                        tasks: tg.tasks.map((t) => (t.id === task.id ? task : t)),
+                    })),
+                };
+            });
+
+            return { specs: updatedSpecs };
+        }),
 }));

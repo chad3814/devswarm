@@ -1,12 +1,20 @@
 import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
-import { MAIN_CLAUDE_PROMPT, SPEC_CREATOR_PROMPT, COORDINATOR_PROMPT, WORKER_PROMPT } from '../claude/prompts.js';
+import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
 import { nanoid } from 'nanoid';
 import { getGitHubRepoInfo } from '../git/repo-info.js';
+import { spawnSync } from 'child_process';
+
+interface ValidationResult {
+    success: boolean;
+    lint: { passed: boolean; errors?: string };
+    test: { passed: boolean; errors?: string };
+    build: { passed: boolean; errors?: string };
+}
 
 export class Orchestrator {
     private running = false;
@@ -16,6 +24,8 @@ export class Orchestrator {
     private pushedSpecs = new Set<string>();
     private specErrorCounts = new Map<string, number>();
     private coordinatorLastActivityTime = new Map<string, number>();
+    private lastGitHubSync = 0;
+    private readonly GITHUB_SYNC_INTERVAL = 60_000; // 1 minute
 
     constructor(
         private db: Db,
@@ -87,12 +97,14 @@ export class Orchestrator {
                         spec_id: null,
                         resolution_method: 'merge_and_push',
                     });
+                    console.log(`[Orchestrator] Added new GitHub issue #${issue.number}: ${issue.title}`);
                 }
             }
 
             this.wsHub.broadcastState(this.db);
-        } catch (e) {
-            console.error('Error syncing GitHub issues:', e);
+        } catch (error) {
+            // Don't crash the loop if GitHub API is unavailable
+            console.error('[Orchestrator] Failed to sync GitHub issues:', error);
         }
     }
 
@@ -191,6 +203,13 @@ Please review and decide what to work on first.
     private async runLoop(): Promise<void> {
         while (this.running) {
             try {
+                // Sync GitHub issues periodically (every minute)
+                const now = Date.now();
+                if (now - this.lastGitHubSync >= this.GITHUB_SYNC_INTERVAL) {
+                    await this.syncGitHubIssues();
+                    this.lastGitHubSync = now;
+                }
+
                 // 1. Check for roadmap items needing specs
                 await this.checkForPendingSpecs();
 
@@ -418,67 +437,169 @@ ${spec.content}
         const taskGroups = this.db.getTaskGroupsForSpec(specId);
         console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} has ${taskGroups.length} task groups`);
 
-        // Option 1: Task group-based completion (existing behavior)
-        if (taskGroups.length > 0) {
-            const allTaskGroupsDone = taskGroups.every((tg) => tg.status === 'done');
+        // Check if all task groups are done
+        const allTaskGroupsDone = taskGroups.length > 0 &&
+            taskGroups.every((tg) => tg.status === 'done');
 
-            if (!allTaskGroupsDone) {
+        // Check if spec has commits and coordinator is idle (for auto-detect)
+        const hasCommits = await this.specHasCommits(spec);
+        const coordinatorIdle = this.isCoordinatorIdle(spec);
+        const autoDetectComplete = hasCommits && coordinatorIdle;
+
+        if (!allTaskGroupsDone && !autoDetectComplete) {
+            if (taskGroups.length > 0) {
                 const pendingGroups = taskGroups.filter((tg) => tg.status !== 'done');
                 console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} still has ${pendingGroups.length} pending task groups`);
-                return;
+            } else {
+                console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
             }
+            return; // Not complete yet
+        }
 
-            // All task groups done - mark as complete
-            console.log(`[Orchestrator] Spec ${specId} completing via task group path (all ${taskGroups.length} task groups done)`);
-            await this.transitionSpecToMerging(spec);
+        // Spec is complete - apply resolution method
+        const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
+        const resolutionMethod = roadmapItem?.resolution_method || 'manual';
+
+        console.log(`[Orchestrator] Spec ${specId} complete, applying resolution: ${resolutionMethod}`);
+
+        // Update to validating status
+        this.db.updateSpec(specId, { status: 'validating' });
+        console.log(`[Orchestrator] Spec ${specId} status: in_progress → validating`);
+
+        // Run validation
+        const validation = await this.validateSpec(spec);
+
+        if (!validation.success) {
+            console.error(`[Orchestrator] Spec ${specId} failed validation`);
+            await this.handleValidationFailure(spec, validation);
             return;
         }
 
-        // Option 2: Auto-detect completion for specs without task groups
-        // Check if coordinator has made commits and is idle
-        const hasCommits = await this.specHasCommits(spec);
-        const coordinatorIdle = this.isCoordinatorIdle(spec);
+        console.log(`[Orchestrator] Spec ${specId} passed validation, proceeding to resolution`);
 
-        console.log(`[Orchestrator] checkSpecCompletion: Spec ${specId} auto-detect check - hasCommits: ${hasCommits}, coordinatorIdle: ${coordinatorIdle}`);
+        // Update to merging status
+        this.db.updateSpec(specId, { status: 'merging' });
+        console.log(`[Orchestrator] Spec ${specId} status: validating → merging`);
 
-        if (hasCommits && coordinatorIdle) {
-            console.log(`[Orchestrator] Spec ${specId} completing via auto-detect path (no task groups, has commits, coordinator idle)`);
-
-            // Get roadmap item to check resolution preference
-            const roadmapItem = this.db.getRoadmapItem(spec.roadmap_item_id);
-            const resolutionMethod = roadmapItem?.resolution_method || 'manual';
-
-            console.log(`[Orchestrator] Spec ${specId} resolution method: ${resolutionMethod}`);
-
-            // Mark spec as merging
-            this.db.updateSpec(specId, { status: 'merging' });
-            console.log(`[Orchestrator] Spec ${specId} status: in_progress → merging`);
-
-            try {
-                switch (resolutionMethod) {
-                    case 'merge_and_push':
-                        await this.autoMergeAndPush(spec);
-                        break;
-                    case 'create_pr':
-                        await this.autoCreatePR(spec);
-                        break;
-                    case 'push_branch':
-                        await this.autoPushBranch(spec);
-                        break;
-                    case 'manual':
-                    default:
-                        await this.notifyMainClaudeForManualResolution(spec);
-                        break;
-                }
-            } catch (error) {
-                console.error(`[Orchestrator] Failed to auto-resolve spec ${specId}:`, error);
-                // Fall back to manual if auto-resolution fails
+        // Apply resolution method
+        try {
+            if (resolutionMethod === 'merge_and_push') {
+                await this.autoMergeAndPush(spec);
+            } else if (resolutionMethod === 'create_pr') {
+                await this.autoCreatePR(spec);
+            } else if (resolutionMethod === 'push_branch') {
+                await this.autoPushBranch(spec);
+            } else if (resolutionMethod === 'manual') {
                 await this.notifyMainClaudeForManualResolution(spec);
             }
-
-            // Broadcast state update
-            this.wsHub.broadcastState(this.db);
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to resolve spec ${specId}:`, error);
+            this.db.updateSpec(specId, {
+                status: 'error',
+                error_message: String(error)
+            });
         }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
+    }
+
+    private async validateSpec(spec: Spec): Promise<ValidationResult> {
+        if (!spec.worktree_name) {
+            return {
+                success: false,
+                lint: { passed: false, errors: 'No worktree available' },
+                test: { passed: true },
+                build: { passed: true },
+            };
+        }
+
+        const wtPath = await this.git.getWorktreePath(spec.worktree_name);
+        const result: ValidationResult = {
+            success: true,
+            lint: { passed: true },
+            test: { passed: true },
+            build: { passed: true },
+        };
+
+        // Run lint
+        try {
+            console.log(`[Orchestrator] Running lint for spec ${spec.id}`);
+            const { execSync } = await import('child_process');
+            execSync('npm run lint', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
+            result.lint = { passed: true };
+        } catch (error: unknown) {
+            result.success = false;
+            const err = error as { stdout?: Buffer; stderr?: Buffer; message?: string };
+            const errorOutput = err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
+            result.lint = {
+                passed: false,
+                errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
+            };
+            console.error(`[Orchestrator] Lint failed for spec ${spec.id}:`, result.lint.errors);
+        }
+
+        // Run build (only if lint passed)
+        if (result.success) {
+            try {
+                console.log(`[Orchestrator] Running build for spec ${spec.id}`);
+                const { execSync } = await import('child_process');
+                execSync('npm run build', { cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 300000 });
+                result.build = { passed: true };
+            } catch (error: unknown) {
+                result.success = false;
+                const err = error as { stdout?: Buffer; stderr?: Buffer; message?: string };
+                const errorOutput = err.stdout?.toString() || err.stderr?.toString() || err.message || 'Unknown error';
+                result.build = {
+                    passed: false,
+                    errors: errorOutput.length > 2000 ? errorOutput.slice(0, 2000) + '\n... (truncated)' : errorOutput,
+                };
+                console.error(`[Orchestrator] Build failed for spec ${spec.id}:`, result.build.errors);
+            }
+        }
+
+        // Tests (if test script exists in future)
+        // Skip for now as there's no root-level test script
+
+        return result;
+    }
+
+    private async handleValidationFailure(spec: Spec, validation: ValidationResult): Promise<void> {
+        const errorParts: string[] = ['Pre-resolution validation failed:'];
+
+        if (!validation.lint.passed) {
+            errorParts.push(`\nLint errors:\n${validation.lint.errors}`);
+        }
+        if (!validation.test.passed) {
+            errorParts.push(`\nTest failures:\n${validation.test.errors}`);
+        }
+        if (!validation.build.passed) {
+            errorParts.push(`\nBuild errors:\n${validation.build.errors}`);
+        }
+
+        const errorMessage = errorParts.join('\n');
+
+        // Update spec status to error
+        this.db.updateSpec(spec.id, {
+            status: 'error',
+            error_message: errorMessage,
+        });
+
+        console.log(`[Orchestrator] Spec ${spec.id} status: validating → error`);
+
+        // Notify main Claude
+        if (this.mainClaude) {
+            await this.mainClaude.sendMessage(`
+Spec ${spec.id} failed pre-resolution validation and has been marked as error.
+
+${errorMessage}
+
+Please review the errors in worktree "${spec.worktree_name}", fix the issues, and update the spec status back to in_progress when ready.
+            `);
+        }
+
+        // Broadcast state update
+        this.wsHub.broadcastState(this.db);
     }
 
     private async autoMergeAndPush(spec: Spec): Promise<void> {
@@ -508,7 +629,8 @@ ${spec.content}
         // Notify main Claude of success
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(
-                `Spec ${spec.id} has been automatically merged to main and pushed to origin.`
+                `Spec ${spec.id} has been automatically merged to main and pushed to origin. ` +
+                `Resolution method: merge_and_push. The spec is now marked as done.`
             );
         }
     }
@@ -534,7 +656,8 @@ ${spec.content}
         // Notify main Claude
         if (this.mainClaude) {
             await this.mainClaude.sendMessage(
-                `Spec ${spec.id} has been completed. Pull request created: ${pr.url}`
+                `Spec ${spec.id} has been resolved with a pull request: ${pr.url} ` +
+                `(PR #${pr.number}). Resolution method: create_pr. The spec is now marked as done.`
             );
         }
     }
@@ -667,9 +790,11 @@ Please resolve conflicts manually in worktree "${spec.worktree_name}".
             const currentBranch = await this.git.getCurrentBranch(spec.worktree_name);
 
             // Count commits on spec branch not on main
-            const { execSync } = await import('child_process');
-            const stdout = execSync(`git rev-list main..${currentBranch} --count`, { cwd: wtPath, encoding: 'utf-8' });
-            const commitCount = parseInt(stdout.trim(), 10);
+            const result = spawnSync('git', ['rev-list', `main..${currentBranch}`, '--count'], { cwd: wtPath, encoding: 'utf-8' });
+            if (result.status !== 0) {
+                return false;
+            }
+            const commitCount = parseInt(result.stdout.trim(), 10);
 
             return commitCount > 0;
         } catch (error) {
@@ -680,7 +805,7 @@ Please resolve conflicts manually in worktree "${spec.worktree_name}".
 
     private isCoordinatorIdle(spec: Spec): boolean {
         // Find coordinator instance for this spec
-        for (const [id, instance] of this.instances) {
+        for (const [id, _instance] of this.instances) {
             const record = this.db.getClaudeInstance(id);
             if (record?.role === 'coordinator' && record.context_id === spec.id) {
                 // Check if instance has been idle for at least 60 seconds
