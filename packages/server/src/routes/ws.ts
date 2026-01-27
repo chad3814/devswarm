@@ -111,6 +111,20 @@ export class WebSocketHub {
         });
     }
 
+    broadcastTaskGroupUpdate(taskGroup: object): void {
+        this.broadcast({
+            type: 'task_group_update',
+            taskGroup,
+        });
+    }
+
+    broadcastTaskUpdate(task: object): void {
+        this.broadcast({
+            type: 'task_update',
+            task,
+        });
+    }
+
     broadcastShutdownProgress(stage: string): void {
         this.broadcast({
             type: 'shutdown_progress',

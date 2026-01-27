@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
-import { useStore, RoadmapItem, Spec, ClaudeInstance, Question, ClaudeMessage } from '../stores/store';
+import { useStore, RoadmapItem, Spec, ClaudeInstance, Question, ClaudeMessage, TaskGroup, Task } from '../stores/store';
 
 type ServerMessage =
     | { type: 'state'; payload: { roadmapItems: RoadmapItem[]; specs: Spec[]; claudeInstances: ClaudeInstance[] } }
@@ -8,6 +8,8 @@ type ServerMessage =
     | { type: 'claude_update'; instance: ClaudeInstance }
     | { type: 'claude_output'; instanceId: string; role: string; worktree: string | null; data: string; messageType: 'new' | 'continue'; messageId: string; timestamp: number }
     | { type: 'question'; question: Question }
+    | { type: 'task_group_update'; taskGroup: TaskGroup }
+    | { type: 'task_update'; task: Task }
     | { type: 'shutdown_progress'; stage: string };
 
 type ClientMessage =
@@ -37,6 +39,8 @@ export function useWebSocket() {
         updateClaudeInstance,
         addQuestion,
         addClaudeMessage,
+        updateTaskGroup,
+        updateTask,
     } = useStore();
 
     useEffect(() => {
@@ -111,6 +115,14 @@ export function useWebSocket() {
                     addQuestion(msg.question);
                     break;
 
+                case 'task_group_update':
+                    updateTaskGroup(msg.taskGroup);
+                    break;
+
+                case 'task_update':
+                    updateTask(msg.task);
+                    break;
+
                 case 'shutdown_progress':
                     console.log('Shutdown progress:', msg.stage);
                     break;
@@ -128,7 +140,7 @@ export function useWebSocket() {
         return () => {
             ws.close();
         };
-    }, [setRoadmapItems, updateRoadmapItem, setSpecs, updateSpec, setClaudeInstances, updateClaudeInstance, addQuestion, addClaudeMessage]);
+    }, [setRoadmapItems, updateRoadmapItem, setSpecs, updateSpec, setClaudeInstances, updateClaudeInstance, addQuestion, addClaudeMessage, updateTaskGroup, updateTask]);
 
     const send = useCallback((msg: ClientMessage) => {
         const state = wsRef.current?.readyState;

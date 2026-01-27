@@ -97,6 +97,8 @@ interface OrchestratorState {
     setShowShutdownConfirm: (show: boolean) => void;
     addClaudeMessage: (message: ClaudeMessage) => void;
     getInstanceMessages: (instanceId: string) => ClaudeMessage[];
+    updateTaskGroup: (taskGroup: TaskGroup) => void;
+    updateTask: (task: Task) => void;
 }
 
 const MAX_MESSAGES_NON_MAIN = 10;
@@ -179,4 +181,47 @@ export const useStore = create<OrchestratorState>((set, get) => ({
     getInstanceMessages: (instanceId) => {
         return get().instanceMessages[instanceId] || [];
     },
+
+    updateTaskGroup: (taskGroup) =>
+        set((state) => {
+            // Find the spec containing this task group
+            const updatedSpecs = state.specs.map((spec) => {
+                if (!spec.taskGroups) return spec;
+
+                const hasTaskGroup = spec.taskGroups.some((tg) => tg.id === taskGroup.id);
+                if (!hasTaskGroup) return spec;
+
+                return {
+                    ...spec,
+                    taskGroups: spec.taskGroups.map((tg) =>
+                        tg.id === taskGroup.id ? { ...taskGroup, tasks: tg.tasks } : tg
+                    ),
+                };
+            });
+
+            return { specs: updatedSpecs };
+        }),
+
+    updateTask: (task) =>
+        set((state) => {
+            // Find the spec and task group containing this task
+            const updatedSpecs = state.specs.map((spec) => {
+                if (!spec.taskGroups) return spec;
+
+                const hasTask = spec.taskGroups.some((tg) =>
+                    tg.tasks.some((t) => t.id === task.id)
+                );
+                if (!hasTask) return spec;
+
+                return {
+                    ...spec,
+                    taskGroups: spec.taskGroups.map((tg) => ({
+                        ...tg,
+                        tasks: tg.tasks.map((t) => (t.id === task.id ? task : t)),
+                    })),
+                };
+            });
+
+            return { specs: updatedSpecs };
+        }),
 }));

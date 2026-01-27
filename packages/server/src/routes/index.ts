@@ -217,6 +217,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             branch_name: null,
         });
 
+        app.wsHub.broadcastTaskGroupUpdate(taskGroup);
         return taskGroup;
     });
 
@@ -227,6 +228,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.db.updateTaskGroup(id, updates);
         const taskGroup = app.db.getTaskGroup(id);
 
+        app.wsHub.broadcastTaskGroupUpdate(taskGroup!);
         return taskGroup;
     });
 
@@ -242,6 +244,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             sequence_order: sequence_order || 0,
         });
 
+        app.wsHub.broadcastTaskUpdate(task);
         return task;
     });
 
@@ -252,6 +255,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         app.db.updateTask(id, updates);
         const task = app.db.getTask(id);
 
+        app.wsHub.broadcastTaskUpdate(task!);
         return task;
     });
 
