@@ -130,7 +130,7 @@ export class GitManager {
         const sourceBranch = await this.getCurrentBranch(sourceWorktreeName);
 
         try {
-            await this.git(`merge ${sourceBranch} --no-edit`, targetWt);
+            await this.git(`merge ${sourceBranch} --no-edit --no-ff --no-squash`, targetWt);
             return { success: true, conflicts: [] };
         } catch (e: unknown) {
             const err = e as Error;
