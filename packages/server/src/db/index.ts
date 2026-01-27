@@ -524,6 +524,10 @@ export class Db {
         return false;
     }
 
+    deleteDependency(dependencyId: string): void {
+        this.db.prepare('DELETE FROM dependencies WHERE id = ?').run(dependencyId);
+    }
+
     // Auth State
     setAuthState(key: string, value: string): void {
         this.db.prepare(`
