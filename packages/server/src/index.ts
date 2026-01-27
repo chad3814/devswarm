@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import websocket from '@fastify/websocket';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -19,6 +20,11 @@ async function main(): Promise<void> {
 
     await app.register(cors, { origin: true });
     await app.register(websocket);
+    await app.register(multipart, {
+        limits: {
+            fileSize: 1024 * 1024, // 1MB limit
+        },
+    });
 
     // Serve React frontend
     await app.register(fastifyStatic, {

@@ -1,5 +1,10 @@
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { WebSocket } from 'ws';
+import { createWriteStream } from 'fs';
+import { mkdir } from 'fs/promises';
+import { pipeline } from 'stream/promises';
+import path from 'path';
+import { randomBytes } from 'crypto';
 import { GitHubAuth } from '../github/auth.js';
 import { WebSocketHub } from './ws.js';
 import { Db } from '../db/index.js';
@@ -64,6 +69,48 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         await orchestrator.start();
 
         return { success: true };
+    });
+
+    // File upload endpoint
+    app.post('/api/files/upload', async (request, reply) => {
+        try {
+            const data = await request.file();
+
+            if (!data) {
+                return reply.code(400).send({ error: 'No file provided' });
+            }
+
+            // Validate file size (already checked by multipart plugin)
+            if (data.file.truncated) {
+                return reply.code(413).send({ error: 'File exceeds 1MB limit' });
+            }
+
+            // Sanitize filename - remove path separators and special chars
+            const sanitizedName = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+
+            // Generate unique filename with random prefix to avoid collisions
+            const uniquePrefix = randomBytes(4).toString('hex');
+            const filename = `${uniquePrefix}-${sanitizedName}`;
+
+            // Ensure /tmp directory exists
+            const tmpDir = '/tmp';
+            await mkdir(tmpDir, { recursive: true });
+
+            const filepath = path.join(tmpDir, filename);
+
+            // Stream file to disk
+            await pipeline(data.file, createWriteStream(filepath));
+
+            return {
+                success: true,
+                path: filepath,
+                filename: sanitizedName,
+                size: data.file.bytesRead
+            };
+        } catch (error) {
+            request.log.error({ error }, 'File upload failed');
+            return reply.code(500).send({ error: 'Upload failed' });
+        }
     });
 
     // Roadmap routes
