@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useStore } from '../../stores/store';
+import { uploadFile } from '../../api/client';
 
 interface MainClaudeChatProps {
     instanceId: string;
@@ -9,8 +10,11 @@ interface MainClaudeChatProps {
 export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
     const [messages, setMessages] = useState<{ role: 'user' | 'claude'; content: string; messageId?: string }[]>([]);
     const [input, setInput] = useState('');
+    const [uploading, setUploading] = useState(false);
+    const [dragActive, setDragActive] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const { subscribeToClaude, sendToMain } = useWebSocket();
     const { getInstanceMessages } = useStore();
 
@@ -65,6 +69,52 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    const handleFileUpload = async (files: FileList) => {
+        setUploading(true);
+        try {
+            for (const file of Array.from(files)) {
+                if (file.size > 1024 * 1024) {
+                    alert(`File ${file.name} exceeds 1MB limit`);
+                    continue;
+                }
+                const path = await uploadFile(file);
+                setInput(prev => prev ? `${prev} \`${path}\`` : `\`${path}\``);
+            }
+        } catch (error) {
+            console.error('Upload failed:', error);
+            alert('Failed to upload file');
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    const handleDragEnter = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(true);
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            handleFileUpload(e.dataTransfer.files);
+        }
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
@@ -103,7 +153,21 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
                 <div ref={messagesEndRef} />
             </div>
 
-            <form onSubmit={handleSubmit} className="p-4 border-t border-gray-700">
+            <form
+                onSubmit={handleSubmit}
+                onDragEnter={handleDragEnter}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`p-4 border-t border-gray-700 ${dragActive ? 'ring-2 ring-blue-500' : ''}`}
+            >
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+                    className="hidden"
+                    multiple
+                />
                 <div className="flex gap-2">
                     <input
                         type="text"
@@ -111,12 +175,14 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
                         onChange={(e) => setInput(e.target.value)}
                         placeholder="Send a message to main claude..."
                         className="flex-1 bg-gray-800 rounded px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        disabled={uploading}
                     />
                     <button
                         type="submit"
-                        className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
+                        className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded disabled:opacity-50"
+                        disabled={uploading}
                     >
-                        Send
+                        {uploading ? 'Uploading...' : 'Send'}
                     </button>
                 </div>
             </form>

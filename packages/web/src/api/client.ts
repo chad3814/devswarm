@@ -88,3 +88,20 @@ export const api = {
     // Shutdown
     shutdown: () => request<{ success: boolean }>('/shutdown', { method: 'POST' }),
 };
+
+export async function uploadFile(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(`${BASE_URL}/api/files/upload`, {
+        method: 'POST',
+        body: formData, // Don't set Content-Type - browser sets it with boundary
+    });
+
+    if (!response.ok) {
+        throw new Error(`Upload failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    return result.path;
+}
