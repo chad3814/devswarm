@@ -260,18 +260,45 @@ export class GitManager {
         // Push branch
         await this.git(['push', '-u', 'origin', branch], wtPath);
 
-        // Create PR using gh CLI with safe argument passing
+        // Create PR using gh CLI with spawn for safe argument passing
         // Note: The merge method (squash, merge commit, or rebase) is controlled by
         // GitHub repository settings when the PR is merged. This command only creates
         // the PR. To preserve full commit history, repository administrators should
         // configure the repo to allow/default to "merge commits" rather than "squash and merge".
-        const { stdout } = await execFile('gh', [
-            'pr', 'create',
-            '--title', title,
-            '--body', body,
-            '--json', 'url,number'
-        ], { cwd: wtPath });
+        return new Promise((resolve, reject) => {
+            const gh = spawn('gh', [
+                'pr', 'create',
+                '--title', title,
+                '--body', body,
+                '--json', 'url,number'
+            ], { cwd: wtPath });
 
-        return JSON.parse(stdout);
+            let stdout = '';
+            let stderr = '';
+
+            gh.stdout.on('data', (data) => {
+                stdout += data.toString();
+            });
+
+            gh.stderr.on('data', (data) => {
+                stderr += data.toString();
+            });
+
+            gh.on('close', (code) => {
+                if (code === 0) {
+                    try {
+                        resolve(JSON.parse(stdout));
+                    } catch (error) {
+                        reject(new Error(`Failed to parse gh output: ${error}`));
+                    }
+                } else {
+                    reject(new Error(`gh pr create failed with code ${code}: ${stderr}`));
+                }
+            });
+
+            gh.on('error', (error) => {
+                reject(error);
+            });
+        });
     }
 }
