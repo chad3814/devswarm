@@ -53,6 +53,8 @@ export const api = {
             body: JSON.stringify(updates),
         }),
 
+    getRoadmapItemTasks: (id: string) => request<unknown>(`/api/roadmap/${id}/tasks`),
+
     // Specs
     getSpecs: () => request<unknown[]>('/api/specs'),
 

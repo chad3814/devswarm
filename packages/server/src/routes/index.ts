@@ -93,6 +93,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return item;
     });
 
+    app.get('/api/roadmap/:id/tasks', async (request: FastifyRequest<{ Params: { id: string } }>) => {
+        const { id } = request.params;
+
+        // Get the roadmap item to find associated spec
+        const roadmapItem = app.db.getRoadmapItem(id);
+        if (!roadmapItem) {
+            throw { statusCode: 404, message: 'Roadmap item not found' };
+        }
+
+        // If no spec exists, return empty task groups
+        if (!roadmapItem.spec_id) {
+            return { taskGroups: [] };
+        }
+
+        // Get task groups for the spec
+        const taskGroups = app.db.getTaskGroupsForSpec(roadmapItem.spec_id);
+
+        // Get tasks for each task group
+        const taskGroupsWithTasks = taskGroups.map((tg) => ({
+            ...tg,
+            tasks: app.db.getTasksForGroup(tg.id),
+        }));
+
+        return { taskGroups: taskGroupsWithTasks };
+    });
+
     // Specs routes
     app.get('/api/specs', async () => {
         return app.db.getSpecs();
