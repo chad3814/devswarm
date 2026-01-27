@@ -733,7 +733,7 @@ if (process.argv.includes('--version') || process.argv.includes('-v')) {
 }
 
 program
-    .command('start <repo>')
+    .command('start <repo>', { isDefault: true })
     .description('Start or attach to an orchestrator for a repository (pulls latest image by default)')
     .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
     .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
@@ -776,20 +776,5 @@ program
     .command('logs <repo>')
     .description('Tail logs from an orchestrator')
     .action(tailLogs);
-
-// Default command - if just a repo is provided
-program
-    .argument('[repo]', 'Repository to orchestrate (owner/repo or full URL)')
-    .option('--tag <tag>', `Docker image tag to use (default: ${DEFAULT_TAG})`)
-    .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
-    .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
-    .option('--attach', 'Follow logs and open browser (stays in foreground)')
-    .action(async (repo, options) => {
-        if (repo) {
-            await startOrAttach(repo, options);
-        } else {
-            program.help();
-        }
-    });
 
 program.parse();
