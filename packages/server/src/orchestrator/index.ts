@@ -111,7 +111,7 @@ export class Orchestrator {
         // Set up event handlers
         this.mainClaude.on('output', (data) => {
             console.log(`[Orchestrator] Main claude output (${data.length} chars)`);
-            this.wsHub.broadcastClaudeOutput('main', data);
+            this.wsHub.broadcastClaudeOutput('main', data, 'main', 'main');
         });
 
         this.mainClaude.on('question', (question) => {
@@ -164,7 +164,7 @@ Please review and decide what to work on first.
 
             // Set up handlers
             instance.on('output', (data) => {
-                this.wsHub.broadcastClaudeOutput(record.id, data);
+                this.wsHub.broadcastClaudeOutput(record.id, data, record.role, record.worktree_name || undefined);
             });
 
             instance.on('question', (question) => {
@@ -294,7 +294,7 @@ The system will automatically start implementation once the spec is approved.
 
             // Set up handlers
             coordinator.on('output', (data) => {
-                this.wsHub.broadcastClaudeOutput(coordinator.id, data);
+                this.wsHub.broadcastClaudeOutput(coordinator.id, data, 'coordinator', worktreeName);
             });
 
             coordinator.on('question', (question) => {
