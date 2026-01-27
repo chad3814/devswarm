@@ -465,6 +465,65 @@ export class Db {
         this.resolveDependency(roadmapItemId, 'roadmap_item');
     }
 
+    createGitHubSubIssueDependencies(parentRoadmapId: string, subIssueNumbers: number[]): void {
+        for (const issueNumber of subIssueNumbers) {
+            const subIssueRoadmap = this.getRoadmapItemByGitHubIssue(issueNumber);
+            if (subIssueRoadmap) {
+                // Check if dependency already exists
+                const existing = this.db.prepare(`
+                    SELECT id FROM dependencies
+                    WHERE blocker_type = 'roadmap_item'
+                    AND blocker_id = ?
+                    AND blocked_type = 'roadmap_item'
+                    AND blocked_id = ?
+                `).get(subIssueRoadmap.id, parentRoadmapId);
+
+                if (!existing) {
+                    this.createDependency({
+                        blocker_type: 'roadmap_item',
+                        blocker_id: subIssueRoadmap.id,
+                        blocked_type: 'roadmap_item',
+                        blocked_id: parentRoadmapId,
+                        resolved: 0,
+                    });
+                    console.log(`[DB] Created dependency: ${subIssueRoadmap.id} blocks ${parentRoadmapId} (GitHub issue #${issueNumber})`);
+                }
+            }
+        }
+    }
+
+    detectCircularDependency(blockerId: string, blockedId: string): boolean {
+        // Simple DFS to detect cycles
+        const visited = new Set<string>();
+        const stack = [blockerId];
+
+        while (stack.length > 0) {
+            const current = stack.pop()!;
+            if (current === blockedId) {
+                return true; // Cycle detected
+            }
+
+            if (visited.has(current)) {
+                continue;
+            }
+            visited.add(current);
+
+            // Get all items that this item blocks
+            const deps = this.db.prepare(`
+                SELECT blocked_id FROM dependencies
+                WHERE blocker_type = 'roadmap_item'
+                AND blocker_id = ?
+                AND resolved = 0
+            `).all(current) as { blocked_id: string }[];
+
+            for (const dep of deps) {
+                stack.push(dep.blocked_id);
+            }
+        }
+
+        return false;
+    }
+
     // Auth State
     setAuthState(key: string, value: string): void {
         this.db.prepare(`

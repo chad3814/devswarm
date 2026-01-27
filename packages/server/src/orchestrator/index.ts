@@ -3,6 +3,7 @@ import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
 import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
+import { parseIssueDependencies } from '../github/issue-parser.js';
 import { config } from '../config.js';
 import { WebSocketHub } from '../routes/ws.js';
 import { nanoid } from 'nanoid';
@@ -83,6 +84,7 @@ export class Orchestrator {
         try {
             const issues = await fetchGitHubIssues(config.repoOwner, config.repoName);
 
+            // First pass: Create/update roadmap items
             for (const issue of issues) {
                 const existing = this.db.getRoadmapItemByGitHubIssue(issue.number);
 
@@ -98,6 +100,35 @@ export class Orchestrator {
                         resolution_method: 'merge_and_push',
                     });
                     console.log(`[Orchestrator] Added new GitHub issue #${issue.number}: ${issue.title}`);
+                }
+            }
+
+            // Second pass: Parse dependencies and create relationships
+            for (const issue of issues) {
+                const roadmapItem = this.db.getRoadmapItemByGitHubIssue(issue.number);
+                if (!roadmapItem) continue;
+
+                const dependencies = parseIssueDependencies(issue.body);
+
+                // Create dependencies for unchecked task list items
+                if (dependencies.taskListReferences.length > 0) {
+                    this.db.createGitHubSubIssueDependencies(roadmapItem.id, dependencies.taskListReferences);
+                }
+
+                // Create dependencies for "blocked by" references
+                if (dependencies.blockedByReferences.length > 0) {
+                    this.db.createGitHubSubIssueDependencies(roadmapItem.id, dependencies.blockedByReferences);
+                }
+
+                // Resolve dependencies for checked task list items
+                if (dependencies.checkedTaskReferences.length > 0) {
+                    for (const issueNumber of dependencies.checkedTaskReferences) {
+                        const checkedRoadmap = this.db.getRoadmapItemByGitHubIssue(issueNumber);
+                        if (checkedRoadmap) {
+                            // Mark dependency as resolved if it exists
+                            this.db.resolveDependency(checkedRoadmap.id, 'roadmap_item');
+                        }
+                    }
                 }
             }
 
