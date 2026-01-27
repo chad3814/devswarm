@@ -67,9 +67,15 @@ interface AuthStatus {
     ready: boolean;
 }
 
+interface RepositoryInfo {
+    owner: string;
+    name: string;
+}
+
 interface OrchestratorState {
     // Auth
     authStatus: AuthStatus | null;
+    repositoryInfo: RepositoryInfo | null;
 
     // Data
     roadmapItems: RoadmapItem[];
@@ -84,6 +90,7 @@ interface OrchestratorState {
 
     // Actions
     setAuthStatus: (status: AuthStatus | null) => void;
+    setRepositoryInfo: (info: RepositoryInfo | null) => void;
     setRoadmapItems: (items: RoadmapItem[]) => void;
     updateRoadmapItem: (item: RoadmapItem) => void;
     addRoadmapItem: (item: RoadmapItem) => void;
@@ -105,6 +112,7 @@ const MAX_MESSAGES_NON_MAIN = 10;
 
 export const useStore = create<OrchestratorState>((set, get) => ({
     authStatus: null,
+    repositoryInfo: null,
     roadmapItems: [],
     specs: [],
     claudeInstances: [],
@@ -114,6 +122,8 @@ export const useStore = create<OrchestratorState>((set, get) => ({
     showShutdownConfirm: false,
 
     setAuthStatus: (authStatus) => set({ authStatus }),
+
+    setRepositoryInfo: (repositoryInfo) => set({ repositoryInfo }),
 
     setRoadmapItems: (roadmapItems) => set({ roadmapItems }),
 

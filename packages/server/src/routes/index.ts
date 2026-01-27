@@ -25,6 +25,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return { status: 'ok' };
     });
 
+    // Repository info
+    app.get('/api/repository', async () => {
+        return {
+            owner: config.repoOwner,
+            name: config.repoName,
+        };
+    });
+
     // Auth routes
     app.get('/api/auth/status', async () => {
         const ghAuthed = await ghAuth.isAuthenticated();
