@@ -14,6 +14,7 @@ export class Orchestrator {
     private instances = new Map<string, ClaudeInstance>();
     private notifiedRoadmapItems = new Set<string>();
     private pushedSpecs = new Set<string>();
+    private specErrorCounts = new Map<string, number>();
 
     constructor(
         private db: Db,
@@ -263,58 +264,85 @@ The system will automatically start implementation once the spec is approved.
     private async startSpecImplementation(spec: Spec): Promise<void> {
         console.log(`[Orchestrator] Starting implementation for spec ${spec.id}`);
 
-        const worktreeName = `spec-${spec.id}`;
-        const wtPath = await this.git.createWorktree(worktreeName, 'main');
+        try {
+            const worktreeName = `spec-${spec.id}`;
+            const wtPath = await this.git.createWorktree(worktreeName, 'main');
 
-        const coordinator = new ClaudeInstance({
-            id: nanoid(),
-            role: 'coordinator',
-            db: this.db,
-            worktreePath: wtPath,
-            systemPrompt: COORDINATOR_PROMPT,
-            contextType: 'spec',
-            contextId: spec.id,
-        });
+            // Success - clear error count
+            this.specErrorCounts.delete(spec.id);
 
-        await coordinator.start();
-        this.instances.set(coordinator.id, coordinator);
-
-        // Update spec status
-        this.db.updateSpec(spec.id, {
-            status: 'in_progress',
-            worktree_name: worktreeName,
-        });
-
-        console.log(`[Orchestrator] Spec ${spec.id} status: approved → in_progress`);
-
-        // Set up handlers
-        coordinator.on('output', (data) => {
-            this.wsHub.broadcastClaudeOutput(coordinator.id, data);
-        });
-
-        coordinator.on('question', (question) => {
-            const q = this.db.createUserQuestion({
-                claude_instance_id: coordinator.id,
-                question,
-                response: null,
-                status: 'pending',
+            const coordinator = new ClaudeInstance({
+                id: nanoid(),
+                role: 'coordinator',
+                db: this.db,
+                worktreePath: wtPath,
+                systemPrompt: COORDINATOR_PROMPT,
+                contextType: 'spec',
+                contextId: spec.id,
             });
-            this.wsHub.broadcastQuestion(q);
-        });
 
-        coordinator.on('idle', () => {
-            console.log(`[Orchestrator] Coordinator ${coordinator.id} is idle, checking completion for spec ${spec.id}`);
-            this.checkSpecCompletion(spec.id);
-        });
+            await coordinator.start();
+            this.instances.set(coordinator.id, coordinator);
 
-        // Send spec to coordinator
-        await coordinator.sendMessage(`
+            // Update spec status
+            this.db.updateSpec(spec.id, {
+                status: 'in_progress',
+                worktree_name: worktreeName,
+            });
+
+            console.log(`[Orchestrator] Spec ${spec.id} status: approved → in_progress`);
+
+            // Set up handlers
+            coordinator.on('output', (data) => {
+                this.wsHub.broadcastClaudeOutput(coordinator.id, data);
+            });
+
+            coordinator.on('question', (question) => {
+                const q = this.db.createUserQuestion({
+                    claude_instance_id: coordinator.id,
+                    question,
+                    response: null,
+                    status: 'pending',
+                });
+                this.wsHub.broadcastQuestion(q);
+            });
+
+            coordinator.on('idle', () => {
+                console.log(`[Orchestrator] Coordinator ${coordinator.id} is idle, checking completion for spec ${spec.id}`);
+                this.checkSpecCompletion(spec.id);
+            });
+
+            // Send spec to coordinator
+            await coordinator.sendMessage(`
 ${COORDINATOR_PROMPT}
 
 Please implement this spec:
 
 ${spec.content}
-        `);
+            `);
+        } catch (error) {
+            const errorCount = (this.specErrorCounts.get(spec.id) || 0) + 1;
+            this.specErrorCounts.set(spec.id, errorCount);
+
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[Orchestrator] Failed to start spec ${spec.id} (attempt ${errorCount}):`, errorMessage);
+
+            if (errorCount >= 3) {
+                console.error(`[Orchestrator] Spec ${spec.id} failed ${errorCount} times, marking as error`);
+                this.db.updateSpec(spec.id, {
+                    status: 'error',
+                    error_message: `Failed to create worktree after ${errorCount} attempts: ${errorMessage}`,
+                });
+                this.specErrorCounts.delete(spec.id); // Clear count after marking error
+
+                const updatedSpec = this.db.getSpec(spec.id);
+                if (updatedSpec) {
+                    this.wsHub.broadcastSpecUpdate(updatedSpec);
+                }
+            }
+
+            throw error; // Re-throw to be caught by loop error handler
+        }
     }
 
     private async checkCompletions(): Promise<void> {
