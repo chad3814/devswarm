@@ -303,7 +303,7 @@ async function getContainerPort(container: Docker.Container): Promise<number> {
     return parseInt(portLabel, 10);
 }
 
-async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false): Promise<{ port: number; containerId: string; isNew: boolean }> {
+async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePull: boolean = false, model?: string): Promise<{ port: number; containerId: string; isNew: boolean }> {
     const name = containerName(info);
     const volume = volumeName(info);
 
@@ -364,6 +364,11 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
 
     // Claude authentication token
     env.push(`CLAUDE_CODE_OAUTH_TOKEN=${creds.claudeToken}`);
+
+    // Add model if specified
+    if (model) {
+        env.push(`CLAUDE_MODEL=${model}`);
+    }
 
     console.log('Starting container with stored credentials...');
 
@@ -598,7 +603,7 @@ async function streamContainerLogs(
     return { cleanup };
 }
 
-async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean } = {}): Promise<void> {
+async function startOrAttach(repoArg: string, options: { tag?: string; pull?: boolean; skipPull?: boolean; attach?: boolean; model?: string } = {}): Promise<void> {
     const info = parseRepo(repoArg);
     console.log(`Starting devswarm for ${info.owner}/${info.repo}...`);
 
@@ -606,7 +611,7 @@ async function startOrAttach(repoArg: string, options: { tag?: string; pull?: bo
     // Default to pulling unless --skip-pull is provided
     const forcePull = !options.skipPull;
 
-    const { port, containerId, isNew } = await startContainer(info, tag, forcePull);
+    const { port, containerId, isNew } = await startContainer(info, tag, forcePull, options.model);
 
     if (options.attach) {
         console.log('Attaching to container logs...');
@@ -739,6 +744,7 @@ program
     .option('--pull', 'Force pull latest image before starting (default behavior, kept for backwards compatibility)')
     .option('--skip-pull', 'Skip pulling and use cached image (opt-out of default pull behavior)')
     .option('--attach', 'Follow logs and open browser (stays in foreground)')
+    .option('--model <model>', 'Claude model to use (e.g., sonnet, opus, haiku)')
     .action(startOrAttach);
 
 program
