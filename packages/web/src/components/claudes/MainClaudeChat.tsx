@@ -13,6 +13,7 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
     const [uploading, setUploading] = useState(false);
     const [dragActive, setDragActive] = useState(false);
     const [isExpanded, setIsExpanded] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const loadedRef = useRef(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -72,20 +73,28 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
 
     const handleFileUpload = async (files: FileList) => {
         setUploading(true);
+        const fileArray = Array.from(files);
+        setUploadProgress({ current: 0, total: fileArray.length });
+
         try {
-            for (const file of Array.from(files)) {
+            let uploadedCount = 0;
+            for (const file of fileArray) {
                 if (file.size > 1024 * 1024) {
                     alert(`File ${file.name} exceeds 1MB limit`);
                     continue;
                 }
+
+                setUploadProgress({ current: uploadedCount + 1, total: fileArray.length });
                 const path = await uploadFile(file);
                 setInput(prev => prev ? `${prev} \`${path}\`` : `\`${path}\``);
+                uploadedCount++;
             }
         } catch (error) {
             console.error('Upload failed:', error);
             alert('Failed to upload file');
         } finally {
             setUploading(false);
+            setUploadProgress({ current: 0, total: 0 });
         }
     };
 
@@ -148,12 +157,18 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
     };
 
     return (
-        <div className="flex flex-col h-full">
-            <div className="px-4 py-3 bg-gray-800 border-b border-gray-700">
+        <div
+            className="flex flex-col h-full"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            <div className={`px-4 py-3 bg-gray-800 border-b border-gray-700 ${dragActive ? 'ring-2 ring-blue-500' : ''}`}>
                 <h2 className="font-semibold">Main Claude</h2>
             </div>
 
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+            <div className={`flex-1 overflow-auto p-4 space-y-4 ${dragActive ? 'ring-2 ring-blue-500 bg-blue-900/10' : ''}`}>
                 {messages.map((msg, i) => (
                     <div
                         key={i}
@@ -175,10 +190,6 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
 
             <form
                 onSubmit={handleSubmit}
-                onDragEnter={handleDragEnter}
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
                 className={`p-4 border-t border-gray-700 ${dragActive ? 'ring-2 ring-blue-500' : ''}`}
             >
                 <input
@@ -210,11 +221,23 @@ export function MainClaudeChat({ instanceId }: MainClaudeChatProps) {
                         />
                     )}
                     <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded disabled:opacity-50"
+                        disabled={uploading}
+                        title="Upload file(s)"
+                    >
+                        📎
+                    </button>
+                    <button
                         type="submit"
                         className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded disabled:opacity-50"
                         disabled={uploading}
                     >
-                        {uploading ? 'Uploading...' : 'Send'}
+                        {uploading
+                            ? `Uploading... (${uploadProgress.current}/${uploadProgress.total})`
+                            : 'Send'
+                        }
                     </button>
                 </div>
             </form>
