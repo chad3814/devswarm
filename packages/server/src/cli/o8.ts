@@ -39,16 +39,42 @@ roadmap
     .command('list')
     .description('List all roadmap items')
     .action(async () => {
-        const items = await api<Array<{ id: string; title: string; status: string; description: string }>>('/api/roadmap');
+        const items = await api<Array<{
+            id: string;
+            title: string;
+            status: string;
+            description: string;
+            has_unresolved_dependencies?: boolean;
+            dependency_count?: number;
+            blocks_count?: number;
+        }>>('/api/roadmap');
         if (items.length === 0) {
             console.log('No roadmap items found.');
             return;
         }
         for (const item of items) {
-            console.log(`\n[${item.status.toUpperCase()}] ${item.id}`);
+            // Determine dependency status indicator
+            let depIndicator = '';
+            if (item.has_unresolved_dependencies) {
+                depIndicator = ' [BLOCKED]';
+            } else if (item.blocks_count && item.blocks_count > 0) {
+                depIndicator = ' [BLOCKER]';
+            } else if (!item.has_unresolved_dependencies && (!item.blocks_count || item.blocks_count === 0)) {
+                depIndicator = ' [READY]';
+            }
+
+            console.log(`\n[${item.status.toUpperCase()}]${depIndicator} ${item.id}`);
             console.log(`  Title: ${item.title}`);
             if (item.description) {
                 console.log(`  Description: ${item.description.substring(0, 100)}${item.description.length > 100 ? '...' : ''}`);
+            }
+
+            // Show dependency counts if any
+            if (item.dependency_count && item.dependency_count > 0) {
+                console.log(`  Dependencies: ${item.dependency_count} unresolved`);
+            }
+            if (item.blocks_count && item.blocks_count > 0) {
+                console.log(`  Blocks: ${item.blocks_count} items`);
             }
         }
     });
@@ -57,7 +83,15 @@ roadmap
     .command('get <id>')
     .description('Get a specific roadmap item')
     .action(async (id: string) => {
-        const items = await api<Array<{ id: string; title: string; status: string; description: string }>>('/api/roadmap');
+        const items = await api<Array<{
+            id: string;
+            title: string;
+            status: string;
+            description: string;
+            has_unresolved_dependencies?: boolean;
+            dependency_count?: number;
+            blocks_count?: number;
+        }>>('/api/roadmap');
         const item = items.find(i => i.id === id);
         if (!item) {
             console.error(`Roadmap item ${id} not found`);
@@ -426,7 +460,13 @@ program
     .description('Show overall orchestrator status')
     .action(async () => {
         const [roadmapItems, specs, claudes] = await Promise.all([
-            api<Array<{ id: string; status: string; has_unresolved_dependencies?: boolean }>>('/api/roadmap'),
+            api<Array<{
+                id: string;
+                status: string;
+                has_unresolved_dependencies?: boolean;
+                dependency_count?: number;
+                blocks_count?: number;
+            }>>('/api/roadmap'),
             api<Array<{ status: string }>>('/api/specs'),
             api<Array<{ id: string; role: string; status: string }>>('/api/claudes'),
         ]);
