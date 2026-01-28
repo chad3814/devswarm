@@ -362,9 +362,7 @@ async function startContainer(info: RepoInfo, tag: string = DEFAULT_TAG, forcePu
         `GH_TOKEN=${creds.ghToken}`,
     ];
 
-    // Claude authentication token - set both env vars for SDK compatibility
-    // SDK will auto-detect whether it's an API key or OAuth token
-    env.push(`ANTHROPIC_API_KEY=${creds.claudeToken}`);
+    // Claude authentication token
     env.push(`CLAUDE_CODE_OAUTH_TOKEN=${creds.claudeToken}`);
 
     console.log('Starting container with stored credentials...');

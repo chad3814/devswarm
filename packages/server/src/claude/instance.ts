@@ -1,9 +1,4 @@
-import {
-    unstable_v2_createSession,
-    unstable_v2_resumeSession,
-    type SDKSession,
-    type SDKMessage,
-} from '@anthropic-ai/claude-agent-sdk';
+import { spawn, ChildProcess } from 'child_process';
 import { Db, ClaudeInstance as ClaudeInstanceRecord } from '../db/index.js';
 import { EventEmitter } from 'events';
 
@@ -20,23 +15,30 @@ export interface ClaudeInstanceOptions {
     contextId?: string;
     completionPollingInterval?: number; // milliseconds, default 30000
     maxRuntime?: number; // milliseconds, default 2 hours
-    model?: string; // Model to use, defaults to claude-sonnet-4-5-20250929
 }
 
-// Removed ClaudeStreamMessage interface - now using SDK's SDKMessage type
+interface ClaudeStreamMessage {
+    type: 'system' | 'assistant' | 'result' | 'user';
+    subtype?: string;
+    message?: {
+        content?: Array<{ type: string; text?: string }>;
+    };
+    result?: string;
+    session_id?: string;
+}
 
 /**
- * ClaudeInstance manages a Claude SDK session for multi-turn conversations.
+ * ClaudeInstance manages a Claude CLI session using streaming JSON output.
  *
- * Uses the Claude Agent SDK v2 to:
- * - Provide programmatic control over Claude sessions
- * - Maintain conversation context via session IDs
- * - Stream messages and events in real-time
- * - Work in the specified worktree directory
+ * Spawns `claude -p --output-format=stream-json` for each message, which:
+ * - Provides structured JSON output for clean parsing
+ * - Maintains conversation context via --resume flag
+ * - Runs in the specified worktree directory
  */
 export class ClaudeInstance extends EventEmitter {
-    private session?: SDKSession;
+    private process?: ChildProcess;
     private sessionId?: string;
+    private buffer = '';
     private completionPollingTimer?: NodeJS.Timeout;
     private maxRuntimeTimer?: NodeJS.Timeout;
     private currentMessageId?: string;
@@ -81,75 +83,115 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     async sendMessage(message: string): Promise<void> {
+        const args = [
+            '-p',
+            '--verbose',
+            '--output-format=stream-json',
+            '--dangerously-skip-permissions',
+        ];
+
+        if (this.sessionId) {
+            args.push('--resume', this.sessionId);
+        } else {
+            args.push('--continue');
+        }
+
         console.log(`[Claude ${this.id}] Sending message (${message.length} chars)`);
 
-        try {
-            const model = this.options.model || 'claude-sonnet-4-5-20250929';
+        this.process = spawn('claude', args, {
+            cwd: this.options.worktreePath,
+            stdio: ['pipe', 'pipe', 'pipe'],
+        });
 
-            // Change to worktree directory
-            const originalCwd = process.cwd();
-            try {
-                process.chdir(this.options.worktreePath);
+        this.buffer = '';
+        // Reset message ID for new conversation turn
+        this.currentMessageId = undefined;
 
-                // Create or resume session
-                if (this.sessionId) {
-                    this.session = unstable_v2_resumeSession(this.sessionId, {
-                        model,
-                        permissionMode: 'dontAsk',
-                        allowedTools: [
-                            'Bash',
-                            'Read',
-                            'Write',
-                            'Edit',
-                            'Glob',
-                            'Grep',
-                            'AskUserQuestion',
-                            'TodoWrite',
-                        ],
-                    });
-                } else {
-                    this.session = unstable_v2_createSession({
-                        model,
-                        permissionMode: 'dontAsk',
-                        allowedTools: [
-                            'Bash',
-                            'Read',
-                            'Write',
-                            'Edit',
-                            'Glob',
-                            'Grep',
-                            'AskUserQuestion',
-                            'TodoWrite',
-                        ],
-                    });
-                }
+        this.process.stdout?.on('data', (chunk: Buffer) => {
+            this.buffer += chunk.toString();
+            this.parseOutput();
+        });
 
-                // Reset current message ID for new turn
-                this.currentMessageId = undefined;
-
-                // Send the message
-                await this.session.send(message);
-
-                // Stream the response
-                for await (const msg of this.session.stream()) {
-                    this.handleSDKMessage(msg);
-                }
-
-                // Emit message complete
-                this.emit('message_complete');
-                this.emit('idle');
-            } finally {
-                // Restore original directory
-                process.chdir(originalCwd);
+        this.process.stderr?.on('data', (chunk: Buffer) => {
+            const text = chunk.toString();
+            if (text.trim()) {
+                console.error(`[Claude ${this.id}] stderr:`, text);
             }
-        } catch (error) {
-            console.error(`[Claude ${this.id}] Error:`, error);
-            this.emit('error', error);
+        });
+
+        this.process.on('close', (code) => {
+            console.log(`[Claude ${this.id}] Process exited (code ${code})`);
+            this.emit('message_complete');
+            this.emit('idle'); // Signal that this instance is now idle
+        });
+
+        this.process.on('error', (err) => {
+            console.error(`[Claude ${this.id}] Process error:`, err);
+            this.emit('error', err);
+        });
+
+        // Write message to stdin and close
+        this.process.stdin?.write(message);
+        this.process.stdin?.end();
+    }
+
+    private parseOutput(): void {
+        // Find complete JSON objects using brace balancing
+        while (true) {
+            const start = this.buffer.indexOf('{');
+            if (start === -1) break;
+
+            let depth = 0;
+            let end = -1;
+            let inString = false;
+            let escape = false;
+
+            for (let j = start; j < this.buffer.length; j++) {
+                const char = this.buffer[j];
+
+                if (escape) {
+                    escape = false;
+                    continue;
+                }
+
+                if (char === '\\' && inString) {
+                    escape = true;
+                    continue;
+                }
+
+                if (char === '"' && !escape) {
+                    inString = !inString;
+                    continue;
+                }
+
+                if (!inString) {
+                    if (char === '{') depth++;
+                    if (char === '}') {
+                        depth--;
+                        if (depth === 0) {
+                            end = j + 1;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (end === -1) break; // Incomplete JSON, wait for more data
+
+            const jsonStr = this.buffer.substring(start, end);
+            this.buffer = this.buffer.substring(end);
+
+            try {
+                const msg: ClaudeStreamMessage = JSON.parse(jsonStr);
+                this.handleMessage(msg);
+            } catch {
+                console.error(`[Claude ${this.id}] Failed to parse JSON:`, jsonStr.substring(0, 100));
+            }
         }
     }
 
-    private handleSDKMessage(msg: SDKMessage): void {
-        // Extract session ID from message
+    private handleMessage(msg: ClaudeStreamMessage): void {
+        // Extract session ID for resumption
         if (msg.session_id && !this.sessionId) {
             this.sessionId = msg.session_id;
             console.log(`[Claude ${this.id}] Session ID: ${this.sessionId}`);
@@ -160,9 +202,9 @@ export class ClaudeInstance extends EventEmitter {
             });
         }
 
-        // Handle assistant messages (streaming text)
+        // Emit assistant text blocks
         if (msg.type === 'assistant' && msg.message?.content) {
-            // Generate message ID for new assistant message if not set
+            // Generate message ID for new assistant message if not already set
             if (!this.currentMessageId) {
                 this.currentMessageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             }
@@ -179,8 +221,8 @@ export class ClaudeInstance extends EventEmitter {
             }
         }
 
-        // Handle result messages (final output)
-        if (msg.type === 'result' && msg.subtype === 'success') {
+        // Emit final result
+        if (msg.type === 'result' && msg.result) {
             // Reset message ID for new result message
             this.currentMessageId = undefined;
             this.emit('output', {
@@ -188,14 +230,6 @@ export class ClaudeInstance extends EventEmitter {
                 messageType: 'new',
                 messageId: `result-${Date.now()}`,
             });
-        }
-
-        // Handle error results
-        if (msg.type === 'result' && msg.subtype !== 'success') {
-            console.error(`[Claude ${this.id}] Result error: ${msg.subtype}`);
-            if (msg.errors && msg.errors.length > 0) {
-                console.error(`[Claude ${this.id}] Errors:`, msg.errors);
-            }
         }
     }
 
@@ -215,9 +249,8 @@ export class ClaudeInstance extends EventEmitter {
     }
 
     async interrupt(): Promise<string | null> {
-        if (this.session) {
-            this.session.close();
-            this.session = undefined;
+        if (this.process && !this.process.killed) {
+            this.process.kill('SIGINT');
         }
         return this.sessionId || null;
     }
@@ -225,9 +258,8 @@ export class ClaudeInstance extends EventEmitter {
     async stop(): Promise<void> {
         this.clearTimers();
 
-        if (this.session) {
-            this.session.close();
-            this.session = undefined;
+        if (this.process && !this.process.killed) {
+            this.process.kill();
         }
 
         this.options.db.updateClaudeInstance(this.id, {
@@ -280,16 +312,25 @@ export class ClaudeInstance extends EventEmitter {
 
         // Send a final message to let Claude know it's done
         try {
-            await this.sendMessage('All task groups are complete. Your work on this spec is done.');
+            await this.sendMessage('All task groups are complete. Your work on this spec is done. The system will now exit this instance.');
         } catch (e) {
             console.error(`[Claude ${this.id}] Error sending final message:`, e);
         }
 
-        // Wait a moment for the message to complete, then close session
+        // Wait a moment for the message to complete
         setTimeout(() => {
-            if (this.session) {
-                this.session.close();
-                this.session = undefined;
+            // Kill the process if it's still running
+            if (this.process && !this.process.killed) {
+                console.log(`[Claude ${this.id}] Killing process`);
+                this.process.kill('SIGTERM');
+
+                // Force kill after 10 seconds if still running
+                setTimeout(() => {
+                    if (this.process && !this.process.killed) {
+                        console.log(`[Claude ${this.id}] Force killing process`);
+                        this.process.kill('SIGKILL');
+                    }
+                }, 10000);
             }
 
             // Update status in db
@@ -329,11 +370,10 @@ export class ClaudeInstance extends EventEmitter {
             this.completionPollingTimer = undefined;
         }
 
-        // Close the session
-        if (this.session) {
-            console.log(`[Claude ${this.id}] Closing session due to timeout`);
-            this.session.close();
-            this.session = undefined;
+        // Kill the process
+        if (this.process && !this.process.killed) {
+            console.log(`[Claude ${this.id}] Killing process due to timeout`);
+            this.process.kill('SIGKILL');
         }
 
         // Update status and record error
