@@ -96,6 +96,18 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 
 Long-running tasks should be broken into smaller chunks to complete within the 1-hour coordinator/worker limit.
 
+### Claude Model Selection
+
+By default, DevSwarm uses Claude's default model. You can specify a different model using the `--model` argument:
+
+```bash
+devswarm start owner/repo --model haiku   # Faster, lower cost
+devswarm start owner/repo --model sonnet  # Balanced (default)
+devswarm start owner/repo --model opus    # Maximum capability
+```
+
+The model applies to all Claude instances (main, spec creators, coordinators, and workers) in the session.
+
 ## Tech Stack
 
 - **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3)
