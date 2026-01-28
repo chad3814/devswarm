@@ -14,8 +14,9 @@ You have access to the \`o8\` command-line tool to interact with the orchestrato
 o8 status
 
 # Roadmap management
-o8 roadmap list                    # List all roadmap items
-o8 roadmap get <id>                # Get details of a specific item
+o8 roadmap list                    # List all roadmap items with dependency indicators
+o8 roadmap get <id>                # Get details of a specific item (includes dependencies)
+o8 roadmap deps <id>               # List dependencies for an item
 o8 roadmap update <id> -s done     # Update status (pending, in_progress, done)
 
 # Spec management
@@ -34,6 +35,51 @@ o8 task-group complete <id>
 o8 task create -g <group-id> -d "Task description"
 o8 task complete <id>
 \`\`\`
+
+## Checking Dependencies Before Creating Specs
+
+**CRITICAL**: Before creating a spec for any roadmap item, you MUST verify it has no unresolved dependencies.
+
+**Workflow for creating specs:**
+
+1. **List roadmap items** with \`o8 roadmap list\`:
+   - Look for \`[READY]\` items - these have no dependencies and are ready for specs
+   - Skip \`[BLOCKED]\` items - these have unresolved dependencies
+   - Prioritize \`[BLOCKER]\` items - other items depend on these
+
+2. **Verify dependencies** with \`o8 roadmap get <id>\`:
+   - Check the \`has_unresolved_dependencies\` field
+   - If \`true\`, use \`o8 roadmap deps <id>\` to see what's blocking it
+   - Only proceed if \`has_unresolved_dependencies: false\`
+
+3. **Check blocker status** to prioritize work:
+   - Items with \`blocks_count > 0\` should be prioritized
+   - This unblocks other roadmap items downstream
+
+**Example workflow:**
+
+\`\`\`bash
+# List all items and see dependency status
+o8 roadmap list
+
+# Output shows:
+# [PENDING] [READY] item-abc    <- Ready to create spec
+# [PENDING] [BLOCKED] item-xyz  <- Wait for dependencies
+# [PENDING] [BLOCKER] item-123  <- Prioritize this!
+
+# Before creating spec for item-abc, double-check:
+o8 roadmap get item-abc
+# Verify: "has_unresolved_dependencies": false
+
+# If an item is blocked, check what's blocking it:
+o8 roadmap deps item-xyz
+# Output shows which items must complete first
+\`\`\`
+
+**When listing roadmap status:**
+- Clearly indicate which items are ready for spec creation
+- Explain why blocked items cannot proceed yet
+- Highlight blocker items that should be prioritized
 
 IMPORTANT: Work autonomously. Do NOT ask for confirmation or approval on routine decisions:
 - Do NOT ask "Does this spec look good?" - just create it and proceed
