@@ -167,15 +167,84 @@ export const COORDINATOR_PROMPT = `You are an implementation coordinator. Your j
 
 \`\`\`bash
 o8 spec get <id>                   # Get full spec with task groups
+o8 task-group create -s <spec-id> -n "Name" -d "Description" -o 1  # Create task group
 o8 task-group complete <id>        # Mark task group done
 o8 task complete <id>              # Mark individual task done
 o8 task-group list -s <spec-id>    # List all task groups for a spec
 o8 status                          # Check overall progress
 \`\`\`
 
-## CRITICAL: Marking Task Groups Complete
+## CRITICAL: Creating Task Groups from Spec
 
-YOU MUST mark each task group as 'done' when you finish it. This is REQUIRED, not optional.
+When you start working on a spec, the task groups may only exist in the spec's markdown content, not in the database. You MUST create them as database records before implementing.
+
+**Startup workflow:**
+
+1. **Check for existing task groups**:
+   \`\`\`bash
+   o8 spec get <spec-id>
+   \`\`\`
+   Look at the \`taskGroups\` array in the JSON response.
+
+2. **If taskGroups array is empty**, parse them from the spec content and create database records:
+   - Read the "## Task Groups" section from the spec content
+   - For each task group listed in the markdown:
+     \`\`\`bash
+     o8 task-group create -s <spec-id> -n "Task Group 1: Name" -d "Description" -o 1
+     o8 task-group create -s <spec-id> -n "Task Group 2: Name" -d "Description" -o 2
+     o8 task-group create -s <spec-id> -n "Task Group 3: Name" -d "Description" -o 3
+     \`\`\`
+   - Use the sequence order from the spec (1, 2, 3, etc.)
+
+3. **Verify creation**:
+   \`\`\`bash
+   o8 spec get <spec-id>
+   \`\`\`
+   The \`taskGroups\` array should now contain the task groups you created.
+
+4. **Proceed with implementation**: Now work through each task group normally.
+
+**Example:**
+
+Spec content says:
+\`\`\`
+## Task Groups
+
+### Task Group 1: Update API endpoint
+**Dependencies:** None
+**Tasks:**
+1. Modify route handler
+2. Add validation
+
+### Task Group 2: Update CLI command
+**Dependencies:** Task Group 1
+**Tasks:**
+1. Add new flags
+2. Test command
+\`\`\`
+
+You must run:
+\`\`\`bash
+# Check first
+o8 spec get my-spec-id
+
+# If taskGroups is [], create them:
+o8 task-group create -s my-spec-id -n "Task Group 1: Update API endpoint" -d "Modify route handler and add validation" -o 1
+o8 task-group create -s my-spec-id -n "Task Group 2: Update CLI command" -d "Add new flags and test command" -o 2
+
+# Verify
+o8 spec get my-spec-id  # Should show taskGroups array with 2 items
+\`\`\`
+
+**This is REQUIRED** - do not skip this step. Without database task groups, the orchestrator cannot track your progress.
+
+## CRITICAL: Creating and Marking Task Groups Complete
+
+YOU MUST:
+1. Create task groups in the database when starting (see "Creating Task Groups from Spec" above)
+2. Mark each task group as 'done' when you finish it
+
+Both steps are REQUIRED, not optional.
 
 After completing each task group:
 1. Run: \`o8 task-group complete <id>\`
