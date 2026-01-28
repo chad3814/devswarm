@@ -90,6 +90,12 @@ export class ClaudeInstance extends EventEmitter {
             '--dangerously-skip-permissions',
         ];
 
+        // Add model flag if CLAUDE_MODEL environment variable is set
+        const modelEnv = process.env.CLAUDE_MODEL;
+        if (modelEnv) {
+            args.push('--model', modelEnv);
+        }
+
         if (this.sessionId) {
             args.push('--resume', this.sessionId);
         } else {
