@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DevSwarm is an agentic coding orchestrator that uses Claude Code CLI, git worktrees, and tmux to parallelize software development tasks. It's a monorepo with three packages deployed in a Docker container, coordinated through a web dashboard.
+DevSwarm is an agentic coding orchestrator that uses the Claude Agent SDK, git worktrees, and tmux to parallelize software development tasks. It's a monorepo with three packages deployed in a Docker container, coordinated through a web dashboard.
 
 ## Build Commands
 
@@ -41,13 +41,13 @@ DATA VOLUME (/data)
 ├─ bare.git/    # Bare repository clone
 ├─ worktrees/   # Git worktrees per Claude instance
 ├─ state/       # Resume IDs, session state
-└─ config/      # Symlinked gh + claude configs
+└─ config/      # Symlinked gh configs
 ```
 
 ### Package Structure
 
 - **packages/cli**: Host CLI tool using Commander.js and Dockerode for container management
-- **packages/server**: Fastify backend with WebSocket, SQLite (better-sqlite3), tmux management, and git worktree operations
+- **packages/server**: Fastify backend with WebSocket, SQLite (better-sqlite3), Claude Agent SDK integration, tmux management, and git worktree operations
 - **packages/web**: React 19 dashboard with Zustand state, xterm.js terminal emulation, Vite build, Tailwind CSS
 
 ### Core Server Modules
@@ -78,7 +78,7 @@ DevSwarm requires two types of authentication:
    - **Claude Code subscription**: Token from `claude setup-token` (recommended for subscriptions)
    - **Anthropic API key**: API key from https://console.anthropic.com/settings/keys
 
-The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN` environment variable, which is automatically used by the Claude Code CLI inside the container.
+The CLI passes authentication to the container via both `ANTHROPIC_API_KEY` and `CLAUDE_CODE_OAUTH_TOKEN` environment variables, which are automatically detected and used by the Claude Agent SDK.
 
 ### Claude Roles
 
@@ -98,7 +98,7 @@ Long-running tasks should be broken into smaller chunks to complete within the 1
 
 ## Tech Stack
 
-- **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3)
+- **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3), Claude Agent SDK
 - **Frontend**: React 19, Zustand 5, Vite 6, Tailwind 3.4, xterm.js 5
 - **System**: Docker, tmux, git worktrees, GitHub CLI
 
