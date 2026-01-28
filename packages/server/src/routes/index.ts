@@ -121,6 +121,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             ...item,
             has_unresolved_dependencies: app.db.hasUnresolvedDependencies('roadmap_item', item.id),
             dependency_count: app.db.getBlockersFor('roadmap_item', item.id).length,
+            blocks_count: app.db.getBlockedBy('roadmap_item', item.id).length,
         }));
     });
 

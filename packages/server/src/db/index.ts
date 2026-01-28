@@ -439,6 +439,10 @@ export class Db {
         return this.db.prepare('SELECT * FROM dependencies WHERE blocked_type = ? AND blocked_id = ? AND resolved = 0').all(blockedType, blockedId) as Dependency[];
     }
 
+    getBlockedBy(blockerType: string, blockerId: string): Dependency[] {
+        return this.db.prepare('SELECT * FROM dependencies WHERE blocker_type = ? AND blocker_id = ? AND resolved = 0').all(blockerType, blockerId) as Dependency[];
+    }
+
     resolveDependency(blockerId: string, blockerType: string): void {
         this.db.prepare('UPDATE dependencies SET resolved = 1 WHERE blocker_id = ? AND blocker_type = ?').run(blockerId, blockerType);
     }
