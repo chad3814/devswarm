@@ -56,7 +56,7 @@ export interface Task {
 
 export interface ClaudeInstance {
     id: string;
-    role: 'main' | 'spec_creator' | 'coordinator' | 'worker';
+    role: 'main' | 'spec_creator' | 'coordinator' | 'worker' | 'roadmap_migrator' | 'dependency_checker';
     tmux_pane: string | null;
     tmux_window: string | null;
     resume_id: string | null;

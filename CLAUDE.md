@@ -86,6 +86,8 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 - `spec_creator`: Detailed specification writer
 - `coordinator`: Spec implementation manager
 - `worker`: Task executor (multiple can run in parallel)
+- `roadmap_migrator`: Automated ROADMAP.md file migration agent
+- `dependency_checker`: Analyzes draft specs to identify and create dependencies between roadmap items
 
 ### Claude Instance Timeouts
 
@@ -93,6 +95,8 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 - **Spec Creator**: No timeout (runs indefinitely)
 - **Coordinator**: 1 hour timeout (3600000ms)
 - **Worker**: 1 hour timeout (3600000ms)
+- **Roadmap Migrator**: 1 hour timeout (3600000ms)
+- **Dependency Checker**: 1 hour timeout (3600000ms)
 
 Long-running tasks should be broken into smaller chunks to complete within the 1-hour coordinator/worker limit.
 
@@ -136,6 +140,9 @@ o8 roadmap list                     # List all roadmap items
 o8 spec create -r <id> -c @spec.md  # Create spec from file
 o8 spec approve <id>                # Approve spec for implementation
 o8 task-group complete <id>         # Mark task group as done
+o8 check-dependencies               # Analyze draft specs and create dependencies
+o8 roadmap add-dep --blocker <id> --blocked <id>  # Manually add dependency
+o8 roadmap deps <id>                # List dependencies for a roadmap item
 ```
 
 ## Status Workflows
@@ -146,6 +153,52 @@ o8 task-group complete <id>         # Mark task group as done
 
 **Task Groups/Tasks**: `pending` → `in_progress` → `done`
 
+## Dependency Management
+
+DevSwarm includes automated dependency detection between roadmap items:
+
+### Dependency Checker Agent
+
+The `dependency_checker` agent analyzes draft specs to identify logical dependencies and automatically creates dependency relationships:
+
+**Features**:
+- Detects explicit references ("Requires roadmap item X", "Depends on #123")
+- Identifies implicit dependencies ("Modify the X feature to add...")
+- Recognizes common dependency keywords ("requires", "depends", "blocked", "prerequisite")
+- Avoids false positives (external libraries, completed work, example code)
+- Prevents circular dependencies
+- Works autonomously without user confirmation
+
+**Usage**:
+```bash
+o8 check-dependencies  # Start dependency analysis of all draft specs
+```
+
+The agent will:
+1. List all draft specs
+2. Read each spec's content and associated roadmap item
+3. Analyze for dependency patterns
+4. Create roadmap_item dependencies (not spec dependencies)
+5. Report completion with summary
+
+**How it works**:
+- Spawned by main Claude or via API endpoint
+- Runs in main worktree (read-only)
+- 1-hour timeout
+- Emits [TASK_COMPLETE] when finished
+- Creates dependencies using existing database infrastructure
+
+### Manual Dependency Management
+
+```bash
+o8 roadmap add-dep --blocker <id> --blocked <id>  # Create dependency
+o8 roadmap deps <id>                              # List dependencies
+```
+
+**Dependency Direction**:
+- **Blocker**: The item that must complete FIRST
+- **Blocked**: The item that must wait
+
 ## Key Patterns
 
 - Event-driven Claude interaction via Node.js EventEmitter
@@ -154,3 +207,4 @@ o8 task-group complete <id>         # Mark task group as done
 - Resume IDs generated with nanoid for Claude session persistence
 - Git worktrees provide clean isolation per spec/task
 - Spec IDs are semantic: `iss-{number}-{slug}` for GitHub issues, `live-{slug}-{random}` for dashboard-created items
+- Dependency tracking uses existing database infrastructure (no migration needed)

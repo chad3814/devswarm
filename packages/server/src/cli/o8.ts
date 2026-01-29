@@ -454,6 +454,32 @@ task
         console.log(JSON.stringify(t, null, 2));
     });
 
+// Dependency checker command
+program
+    .command('check-dependencies')
+    .description('Analyze draft specs and create dependencies')
+    .action(async () => {
+        try {
+            const res = await api<{ success: boolean; checkerId?: string; error?: string }>(
+                '/api/dependencies/check',
+                {
+                    method: 'POST',
+                }
+            );
+
+            if (res.success) {
+                console.log(`Dependency checking started (instance: ${res.checkerId})`);
+                console.log('Monitor progress in the dashboard or via: o8 status');
+            } else {
+                console.error('Failed to start dependency checker:', res.error);
+                process.exit(1);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            process.exit(1);
+        }
+    });
+
 // Status command
 program
     .command('status')

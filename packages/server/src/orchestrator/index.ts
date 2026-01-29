@@ -1,7 +1,7 @@
 import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
-import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT } from '../claude/prompts.js';
+import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT, DEPENDENCY_CHECKER_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { parseIssueDependencies } from '../github/issue-parser.js';
 import { config } from '../config.js';
@@ -403,6 +403,69 @@ ${spec.content}
             }
 
             throw error; // Re-throw to be caught by loop error handler
+        }
+    }
+
+    async startDependencyChecker(): Promise<string> {
+        console.log(`[Orchestrator] Starting dependency checker`);
+
+        try {
+            // Use main worktree (read-only operation)
+            const mainWt = await this.git.getWorktreePath('main');
+
+            const checkerId = nanoid();
+            const checker = new ClaudeInstance({
+                id: checkerId,
+                role: 'dependency_checker',
+                db: this.db,
+                worktreePath: mainWt,
+                systemPrompt: DEPENDENCY_CHECKER_PROMPT,
+                maxRuntime: 3600000, // 1 hour timeout
+            });
+
+            await checker.start();
+            this.instances.set(checkerId, checker);
+
+            // Set up event handlers
+            checker.on('output', (data) => {
+                console.log(`[Orchestrator] Dependency checker output (${data.text.length} chars)`);
+                this.wsHub.broadcastClaudeOutput(checkerId, data, 'dependency_checker', checkerId);
+            });
+
+            checker.on('task_complete', () => {
+                console.log(`[Orchestrator] Dependency checking complete`);
+                checker.stop();
+                this.instances.delete(checkerId);
+                this.wsHub.broadcastState(this.db);
+            });
+
+            checker.on('question', (question) => {
+                const q = this.db.createUserQuestion({
+                    claude_instance_id: checkerId,
+                    question,
+                    response: null,
+                    status: 'pending',
+                });
+                this.wsHub.broadcastQuestion(q);
+            });
+
+            checker.on('idle', () => {
+                console.log(`[Orchestrator] Dependency checker idle, removing instance`);
+                this.instances.delete(checkerId);
+                this.wsHub.broadcastState(this.db);
+            });
+
+            // Send initial message
+            await checker.sendMessage(
+                `${DEPENDENCY_CHECKER_PROMPT}\n\n` +
+                `Please analyze all draft specs and create dependency relationships between roadmap items. ` +
+                `Start by listing all draft specs.`
+            );
+
+            return checkerId;
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to start dependency checker:`, error);
+            throw error;
         }
     }
 
