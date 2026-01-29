@@ -266,6 +266,39 @@ o8 roadmap deps <id>                              # List dependencies
 - **Blocker**: The item that must complete FIRST
 - **Blocked**: The item that must wait
 
+### Batch Roadmap Processing
+
+When multiple roadmap items are created in quick succession (e.g., via ROADMAP.md migration or GitHub issue sync), the main Claude agent intelligently handles batch processing:
+
+**Batch Detection**:
+Main Claude detects batch scenarios by:
+- Multiple "New roadmap item ready for specification" messages within a short time (< 30 seconds)
+- Similar naming patterns or related functionality
+- Orchestrator hint: "NOTE: Multiple roadmap items detected..."
+
+**Batch Processing Workflow**:
+1. **Create Draft Specs**: Main Claude creates detailed specs for all items but leaves them in 'draft' status
+2. **Wait for Batch Completion**: Monitors for additional items (~30 seconds)
+3. **Run Dependency Checker**: Executes `o8 check-dependencies` to analyze all draft specs
+4. **Review Dependencies**: Checks `o8 roadmap list` to identify blockers vs. blocked items
+5. **Strategic Approval**: Approves specs in priority order:
+   - First: Blocker items (items that other items depend on)
+   - Next: Independent items with satisfied dependencies
+   - Last: Blocked items remain in draft until their blockers complete
+6. **Progressive Approval**: As blocker specs complete, approves newly-unblocked specs
+
+**Single Item Behavior**:
+If only one roadmap item is created, main Claude follows the normal workflow:
+- Create spec
+- Approve immediately
+- No dependency analysis delay
+
+**Benefits**:
+- Prevents starting implementations with unknown dependencies
+- Optimizes parallelization by prioritizing blocker items
+- Avoids out-of-order implementation that could block progress
+- Leverages dependency checker for automated relationship detection
+
 ## Key Patterns
 
 - Event-driven Claude interaction via Node.js EventEmitter
