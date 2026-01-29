@@ -86,6 +86,7 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 - `spec_creator`: Detailed specification writer
 - `coordinator`: Spec implementation manager
 - `worker`: Task executor (multiple can run in parallel)
+- `roadmap_migrator`: ROADMAP.md file parser that creates roadmap items and draft specs
 
 ### Claude Instance Timeouts
 
@@ -93,8 +94,9 @@ The CLI passes authentication to the container via the `CLAUDE_CODE_OAUTH_TOKEN`
 - **Spec Creator**: No timeout (runs indefinitely)
 - **Coordinator**: 1 hour timeout (3600000ms)
 - **Worker**: 1 hour timeout (3600000ms)
+- **Roadmap Migrator**: 1 hour timeout (3600000ms)
 
-Long-running tasks should be broken into smaller chunks to complete within the 1-hour coordinator/worker limit.
+Long-running tasks should be broken into smaller chunks to complete within the 1-hour coordinator/worker/migrator limit.
 
 ### Claude Model Selection
 
@@ -113,6 +115,73 @@ The model applies to all Claude instances (main, spec creators, coordinators, an
 - **Backend**: Node.js 22, TypeScript 5.7, Fastify 5, SQLite (better-sqlite3)
 - **Frontend**: React 19, Zustand 5, Vite 6, Tailwind 3.4, xterm.js 5
 - **System**: Docker, tmux, git worktrees, GitHub CLI
+
+## Migrating ROADMAP.md Files
+
+DevSwarm can automatically migrate existing ROADMAP.md files into individual roadmap items with draft specifications.
+
+### Usage
+
+From inside the container or via the main Claude agent:
+
+```bash
+o8 migrate                    # Migrate ROADMAP.md from repository root
+o8 migrate -f custom-path.md  # Migrate a custom file
+```
+
+From the web dashboard, you can also trigger migration via the HTTP API:
+
+```bash
+curl -X POST http://localhost:3814/api/roadmap/migrate \
+  -H "Content-Type: application/json" \
+  -d '{"roadmapFile": "ROADMAP.md"}'
+```
+
+### Supported ROADMAP.md Formats
+
+The migrator agent supports multiple formats:
+
+**Markdown List Format:**
+```markdown
+# Roadmap
+
+## Planned Features
+
+- **Feature Name**: Description of the feature
+- **Another Feature**: Another description
+```
+
+**Numbered List Format:**
+```markdown
+# Roadmap
+
+1. **Feature Name**: Description
+2. **Another Feature**: Description
+```
+
+**Heading-Based Format:**
+```markdown
+# Roadmap
+
+## Feature Name
+
+Description of the feature across multiple paragraphs.
+
+Acceptance criteria:
+- Criterion 1
+- Criterion 2
+```
+
+### Migration Process
+
+1. The `roadmap_migrator` agent reads the ROADMAP.md file
+2. Parses entries into individual roadmap items
+3. Creates a roadmap item for each entry via `o8 roadmap create`
+4. Generates a comprehensive draft spec for each item via `o8 spec create`
+5. Specs are left in 'draft' status for manual review before implementation
+6. The agent completes with a summary of items created
+
+The migrator has a 1-hour timeout and runs in the main worktree (read-only operation).
 
 ## Testing
 
