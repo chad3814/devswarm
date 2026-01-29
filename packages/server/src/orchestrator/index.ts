@@ -1,7 +1,7 @@
 import { Db, Spec } from '../db/index.js';
 import { GitManager } from '../git/index.js';
 import { ClaudeInstance } from '../claude/instance.js';
-import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT } from '../claude/prompts.js';
+import { MAIN_CLAUDE_PROMPT, COORDINATOR_PROMPT, ROADMAP_MIGRATOR_PROMPT } from '../claude/prompts.js';
 import { fetchGitHubIssues, closeIssue } from '../github/issues.js';
 import { parseIssueDependencies } from '../github/issue-parser.js';
 import { config } from '../config.js';
@@ -403,6 +403,69 @@ ${spec.content}
             }
 
             throw error; // Re-throw to be caught by loop error handler
+        }
+    }
+
+    async startRoadmapMigration(roadmapFilePath: string = 'ROADMAP.md'): Promise<string> {
+        console.log(`[Orchestrator] Starting roadmap migration from ${roadmapFilePath}`);
+
+        try {
+            // Use main worktree
+            const mainWt = await this.git.getWorktreePath('main');
+
+            const migratorId = nanoid();
+            const migrator = new ClaudeInstance({
+                id: migratorId,
+                role: 'roadmap_migrator',
+                db: this.db,
+                worktreePath: mainWt,
+                systemPrompt: ROADMAP_MIGRATOR_PROMPT,
+                maxRuntime: 3600000, // 1 hour timeout
+            });
+
+            await migrator.start();
+            this.instances.set(migratorId, migrator);
+
+            // Set up event handlers
+            migrator.on('output', (data) => {
+                console.log(`[Orchestrator] Migrator output (${data.text.length} chars)`);
+                this.wsHub.broadcastClaudeOutput(migratorId, data, 'roadmap_migrator', migratorId);
+            });
+
+            migrator.on('task_complete', () => {
+                console.log(`[Orchestrator] Roadmap migration complete`);
+                migrator.stop();
+                this.instances.delete(migratorId);
+                this.wsHub.broadcastState(this.db);
+            });
+
+            migrator.on('question', (question) => {
+                const q = this.db.createUserQuestion({
+                    claude_instance_id: migratorId,
+                    question,
+                    response: null,
+                    status: 'pending',
+                });
+                this.wsHub.broadcastQuestion(q);
+            });
+
+            migrator.on('idle', () => {
+                console.log(`[Orchestrator] Migrator idle, removing instance`);
+                this.instances.delete(migratorId);
+                this.wsHub.broadcastState(this.db);
+            });
+
+            // Send initial message
+            await migrator.sendMessage(
+                `${ROADMAP_MIGRATOR_PROMPT}\n\n` +
+                `Please migrate the ${roadmapFilePath} file from the repository root into roadmap items and draft specs. ` +
+                `Start by reading the file to see what needs to be migrated.`
+            );
+
+            return migratorId;
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to start roadmap migration:`, error);
+            throw error;
         }
     }
 

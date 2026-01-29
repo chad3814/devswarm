@@ -144,6 +144,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return item;
     });
 
+    // POST /api/roadmap/migrate
+    app.post<{
+        Body: { roadmapFile?: string };
+    }>('/api/roadmap/migrate', async (request, reply) => {
+        const { roadmapFile = 'ROADMAP.md' } = request.body || {};
+
+        try {
+            const migratorId = await app.orchestrator.startRoadmapMigration(roadmapFile);
+            return { success: true, migratorId };
+        } catch (error) {
+            console.error('[API] Failed to start roadmap migration:', error);
+            reply.status(500);
+            return { success: false, error: String(error) };
+        }
+    });
+
     app.patch('/api/roadmap/:id', async (request: FastifyRequest<{ Params: { id: string }; Body: Partial<{ title: string; description: string; status: string; resolution_method: 'merge_and_push' | 'create_pr' | 'push_branch' | 'manual' }> }>) => {
         const { id } = request.params;
         const updates = request.body;
