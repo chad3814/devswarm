@@ -503,4 +503,32 @@ program
         }
     });
 
+// Roadmap migration command
+program
+    .command('migrate')
+    .description('Migrate ROADMAP.md file to roadmap items')
+    .option('-f, --file <file>', 'Path to roadmap file', 'ROADMAP.md')
+    .action(async (options) => {
+        try {
+            const res = await api<{ success: boolean; migratorId?: string; error?: string }>(
+                '/api/roadmap/migrate',
+                {
+                    method: 'POST',
+                    body: JSON.stringify({ roadmapFile: options.file }),
+                }
+            );
+
+            if (res.success) {
+                console.log(`Roadmap migration started (instance: ${res.migratorId})`);
+                console.log('Monitor progress in the dashboard or via: o8 status');
+            } else {
+                console.error('Failed to start migration:', res.error);
+                process.exit(1);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            process.exit(1);
+        }
+    });
+
 program.parse();
