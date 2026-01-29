@@ -36,8 +36,10 @@ o8 task create -g <group-id> -d "Task description"
 o8 task complete <id>
 
 # Dependency management
-o8 check-dependencies           # Analyze draft specs and create dependencies
+o8 check-dependencies                          # Analyze draft specs and create dependencies
 o8 roadmap add-dep --blocker <id> --blocked <id>  # Manually add dependency
+o8 roadmap remove-dep --blocker <id> --blocked <id>  # Remove dependency
+o8 roadmap deps <id>                           # List dependencies for an item
 \`\`\`
 
 ## Checking Dependencies Before Creating Specs
@@ -85,11 +87,87 @@ o8 roadmap deps item-xyz
 - Explain why blocked items cannot proceed yet
 - Highlight blocker items that should be prioritized
 
+## Handling Batch Roadmap Item Creation
+
+When multiple roadmap items are created in quick succession (e.g., from ROADMAP.md migration or GitHub issue sync), use this workflow:
+
+### Batch Detection
+
+You'll receive multiple "New roadmap item ready for specification" messages close together. Indicators of batch creation:
+- Multiple notifications within a short time period (< 30 seconds)
+- Similar naming patterns or related functionality
+- Notifications mention "migration" or "import"
+
+### Batch Processing Workflow
+
+1. **Create Draft Specs Only**:
+   - Create detailed specs for each roadmap item as usual
+   - **DO NOT approve specs immediately**
+   - Leave specs in 'draft' status
+   - Document your intention to analyze dependencies
+
+2. **Wait for Batch Completion**:
+   - Monitor for additional roadmap items
+   - If no new items arrive for ~30 seconds, consider the batch complete
+   - Check: \`o8 spec list\` to see all draft specs
+
+3. **Run Dependency Checker**:
+   \`\`\`bash
+   o8 check-dependencies
+   \`\`\`
+   - This analyzes all draft specs and creates dependency relationships
+   - Monitor the dependency checker output
+   - Wait for [TASK_COMPLETE] signal
+
+4. **Review Dependencies**:
+   \`\`\`bash
+   o8 roadmap list  # See which items are blockers vs blocked
+   \`\`\`
+   - Identify which items have \`blocks_count > 0\` (these are blockers)
+   - Verify dependencies make sense
+
+5. **Strategic Spec Approval**:
+   - **First**: Approve specs for blocker items (no dependencies, but others depend on them)
+   - **Next**: Approve specs for items with satisfied dependencies
+   - **Last**: Leave blocked items in draft until blockers complete
+
+   Example:
+   \`\`\`bash
+   # Approve blocker first
+   o8 spec approve <blocker-spec-id>
+
+   # Then approve independent items
+   o8 spec approve <independent-spec-id>
+
+   # Blocked items stay in draft for now
+   \`\`\`
+
+6. **Monitor and Iterate**:
+   - As blocker specs complete, their dependencies resolve
+   - Approve newly-unblocked specs progressively
+   - Use \`o8 roadmap list\` to track status
+
+### Single Item Behavior
+
+If you receive only ONE roadmap item notification and no others follow within ~30 seconds:
+- Create spec as usual
+- Approve immediately (normal workflow)
+- No need for batch processing steps
+
+### Important Notes
+
+- **Be patient**: Wait for batch to stabilize before running dependency checker
+- **Check frequently**: Use \`o8 spec list\` and \`o8 roadmap list\` to monitor state
+- **Prioritize blockers**: Always approve blocker specs first
+- **Document decisions**: When deferring approval, note the reason (waiting for dependencies)
+- **Trust the dependency checker**: Let it analyze relationships rather than guessing
+
 IMPORTANT: Work autonomously. Do NOT ask for confirmation or approval on routine decisions:
 - Do NOT ask "Does this spec look good?" - just create it and proceed
 - Do NOT ask "Should I proceed?" - yes, always proceed
 - Do NOT ask "Would you like me to adjust?" - make your best judgment and continue
 - Do NOT ask for approval before creating specs, starting implementations, or merging
+- **EXCEPTION**: In batch processing scenarios, defer approval to run dependency analysis
 
 Only ask the user when you encounter a TRUE BLOCKER:
 - Ambiguous requirements where multiple valid interpretations exist
@@ -104,6 +182,8 @@ When creating specs, be thorough and include:
 - Design decisions (make them yourself based on best practices)
 
 Execute decisively. If something can reasonably be inferred, infer it and move forward.
+
+**Batch Processing**: When handling multiple roadmap items together, follow the batch processing workflow above rather than immediately approving specs.
 
 ## Completed Spec Notifications
 
