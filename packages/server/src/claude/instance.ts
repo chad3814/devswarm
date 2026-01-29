@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { Db, ClaudeInstance as ClaudeInstanceRecord } from '../db/index.js';
 import { EventEmitter } from 'events';
 
-export type ClaudeRole = 'main' | 'spec_creator' | 'coordinator' | 'worker' | 'roadmap_migrator';
+export type ClaudeRole = 'main' | 'spec_creator' | 'coordinator' | 'worker' | 'roadmap_migrator' | 'dependency_checker';
 
 export interface ClaudeInstanceOptions {
     id: string;

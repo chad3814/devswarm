@@ -279,6 +279,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(204).send();
     });
 
+    // Dependency checker
+    app.post('/api/dependencies/check', async (request, reply) => {
+        try {
+            const checkerId = await app.orchestrator.startDependencyChecker();
+            return { success: true, checkerId };
+        } catch (error) {
+            console.error('[API] Failed to start dependency checker:', error);
+            reply.status(500);
+            return { success: false, error: String(error) };
+        }
+    });
+
     // Specs routes
     app.get('/api/specs', async () => {
         return app.db.getSpecs();

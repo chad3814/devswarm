@@ -8,7 +8,7 @@
         "o8": "./dist/cli/o8.js"
     },
     "scripts": {
-        "build": "tsc",
+        "build": "tsc && chmod +x dist/cli/o8.js",
         "dev": "tsc --watch"
     },
     "dependencies": {
