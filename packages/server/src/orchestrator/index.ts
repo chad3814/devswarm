@@ -266,6 +266,21 @@ Please review and decide what to work on first.
         }
     }
 
+    private getBatchNotificationContext(item: import('../db/index.js').RoadmapItem): string {
+        // Count pending items without specs created in the last 60 seconds
+        const recentPending = this.db.getRoadmapItems({ status: 'pending' })
+            .filter(i => !i.spec_id && !this.notifiedRoadmapItems.has(i.id))
+            .filter(i => (Date.now() / 1000 - i.created_at) < 60);
+
+        const draftSpecs = this.db.getSpecs({ status: 'draft' }).length;
+
+        if (recentPending.length > 3 || draftSpecs > 2) {
+            return `\n\nNOTE: Multiple roadmap items detected (${recentPending.length} pending, ${draftSpecs} draft specs). Consider using batch processing workflow.`;
+        }
+
+        return '';
+    }
+
     private async checkForPendingSpecs(): Promise<void> {
         const pending = this.db.getRoadmapItems({ status: 'pending' });
 
@@ -294,7 +309,7 @@ New roadmap item ready for specification:
 
 ID: ${item.id}
 Title: ${item.title}
-Description: ${item.description}
+Description: ${item.description}${this.getBatchNotificationContext(item)}
 
 Please create a detailed spec for this roadmap item:
 1. Research the codebase to understand current implementation
@@ -406,7 +421,6 @@ ${spec.content}
         }
     }
 
-<<<<<<< HEAD
     async startRoadmapMigration(roadmapFilePath: string = 'ROADMAP.md'): Promise<string> {
         console.log(`[Orchestrator] Starting roadmap migration from ${roadmapFilePath}`);
 
@@ -443,7 +457,33 @@ ${spec.content}
             migrator.on('question', (question) => {
                 const q = this.db.createUserQuestion({
                     claude_instance_id: migratorId,
-=======
+                    question,
+                    response: null,
+                    status: 'pending',
+                });
+                this.wsHub.broadcastQuestion(q);
+            });
+
+            migrator.on('idle', () => {
+                console.log(`[Orchestrator] Migrator idle, removing instance`);
+                this.instances.delete(migratorId);
+                this.wsHub.broadcastState(this.db);
+            });
+
+            // Send initial message
+            await migrator.sendMessage(
+                `${ROADMAP_MIGRATOR_PROMPT}\n\n` +
+                `Please migrate the ${roadmapFilePath} file from the repository root into roadmap items and draft specs. ` +
+                `Start by reading the file to see what needs to be migrated.`
+            );
+
+            return migratorId;
+        } catch (error) {
+            console.error(`[Orchestrator] Failed to start roadmap migration:`, error);
+            throw error;
+        }
+    }
+
     async startDependencyChecker(): Promise<string> {
         console.log(`[Orchestrator] Starting dependency checker`);
 
@@ -480,7 +520,6 @@ ${spec.content}
             checker.on('question', (question) => {
                 const q = this.db.createUserQuestion({
                     claude_instance_id: checkerId,
->>>>>>> devswarm/spec-live-create-an-agent-for-dependency-checking-and-creati-rsl1h0
                     question,
                     response: null,
                     status: 'pending',
@@ -488,30 +527,13 @@ ${spec.content}
                 this.wsHub.broadcastQuestion(q);
             });
 
-<<<<<<< HEAD
-            migrator.on('idle', () => {
-                console.log(`[Orchestrator] Migrator idle, removing instance`);
-                this.instances.delete(migratorId);
-=======
             checker.on('idle', () => {
                 console.log(`[Orchestrator] Dependency checker idle, removing instance`);
                 this.instances.delete(checkerId);
->>>>>>> devswarm/spec-live-create-an-agent-for-dependency-checking-and-creati-rsl1h0
                 this.wsHub.broadcastState(this.db);
             });
 
             // Send initial message
-<<<<<<< HEAD
-            await migrator.sendMessage(
-                `${ROADMAP_MIGRATOR_PROMPT}\n\n` +
-                `Please migrate the ${roadmapFilePath} file from the repository root into roadmap items and draft specs. ` +
-                `Start by reading the file to see what needs to be migrated.`
-            );
-
-            return migratorId;
-        } catch (error) {
-            console.error(`[Orchestrator] Failed to start roadmap migration:`, error);
-=======
             await checker.sendMessage(
                 `${DEPENDENCY_CHECKER_PROMPT}\n\n` +
                 `Please analyze all draft specs and create dependency relationships between roadmap items. ` +
@@ -521,7 +543,6 @@ ${spec.content}
             return checkerId;
         } catch (error) {
             console.error(`[Orchestrator] Failed to start dependency checker:`, error);
->>>>>>> devswarm/spec-live-create-an-agent-for-dependency-checking-and-creati-rsl1h0
             throw error;
         }
     }
