@@ -87,46 +87,48 @@ o8 roadmap deps item-xyz
 - Explain why blocked items cannot proceed yet
 - Highlight blocker items that should be prioritized
 
-## Handling Batch Roadmap Item Creation
+## CRITICAL: Dependency Analysis Before Spec Approval
 
-When multiple roadmap items are created in quick succession (e.g., from ROADMAP.md migration or GitHub issue sync), use this workflow:
+**MANDATORY WORKFLOW**: After creating any spec, you MUST follow this decision tree to determine if dependency analysis is required:
 
-### Batch Detection
+### Decision Tree: When to Run Dependency Checker
 
-You'll receive multiple "New roadmap item ready for specification" messages close together. Indicators of batch creation:
-- Multiple notifications within a short time period (< 30 seconds)
-- Similar naming patterns or related functionality
-- Notifications mention "migration" or "import"
+**AFTER creating a spec for a roadmap item:**
 
-### Batch Processing Workflow
-
-1. **Create Draft Specs Only**:
-   - Create detailed specs for each roadmap item as usual
-   - **DO NOT approve specs immediately**
-   - Leave specs in 'draft' status
-   - Document your intention to analyze dependencies
-
-2. **Wait for Batch Completion**:
-   - Monitor for additional roadmap items
-   - If no new items arrive for ~30 seconds, consider the batch complete
-   - Check: \`o8 spec list\` to see all draft specs
-
-3. **Run Dependency Checker**:
+1. **Check for additional ready items**:
    \`\`\`bash
-   o8 check-dependencies
+   o8 roadmap list
    \`\`\`
-   - This analyzes all draft specs and creates dependency relationships
-   - Monitor the dependency checker output
-   - Wait for [TASK_COMPLETE] signal
+   - Are there other \`[READY]\` items without specs?
+   - If YES: Go to step 2 (Batch Mode)
+   - If NO: Go to step 3 (Check for draft specs)
 
-4. **Review Dependencies**:
+2. **Batch Mode - Multiple Ready Items**:
+   - Create specs for ALL ready items
+   - Leave all specs in 'draft' status
+   - Wait ~30 seconds to check for additional items arriving
+   - Then run: \`o8 check-dependencies\`
+   - Skip to step 5 (Strategic Approval)
+
+3. **Check for existing draft specs**:
    \`\`\`bash
-   o8 roadmap list  # See which items are blockers vs blocked
+   o8 spec list
    \`\`\`
-   - Identify which items have \`blocks_count > 0\` (these are blockers)
-   - Verify dependencies make sense
+   - Are there OTHER draft specs (besides the one you just created)?
+   - If YES: Go to step 4 (Run dependency checker)
+   - If NO: Approve immediately (this is the only spec)
 
-5. **Strategic Spec Approval**:
+4. **Multiple Draft Specs - Run Dependency Checker**:
+   - Run: \`o8 check-dependencies\`
+   - This analyzes ALL draft specs for dependencies
+   - Continue to step 5 (Strategic Approval)
+
+5. **Strategic Approval After Dependency Analysis**:
+   - Review dependencies:
+     \`\`\`bash
+     o8 roadmap list  # See which items are blockers vs blocked
+     \`\`\`
+   - Identify items with \`blocks_count > 0\` (these are blockers)
    - **First**: Approve specs for blocker items (no dependencies, but others depend on them)
    - **Next**: Approve specs for items with satisfied dependencies
    - **Last**: Leave blocked items in draft until blockers complete
@@ -147,20 +149,16 @@ You'll receive multiple "New roadmap item ready for specification" messages clos
    - Approve newly-unblocked specs progressively
    - Use \`o8 roadmap list\` to track status
 
-### Single Item Behavior
-
-If you receive only ONE roadmap item notification and no others follow within ~30 seconds:
-- Create spec as usual
-- Approve immediately (normal workflow)
-- No need for batch processing steps
-
 ### Important Notes
 
-- **Be patient**: Wait for batch to stabilize before running dependency checker
+- **ALWAYS follow the decision tree**: This is mandatory, not optional
+- **Never skip dependency checking**: When multiple draft specs exist, you MUST run the dependency checker
+- **Be patient in batch scenarios**: Wait ~30 seconds for additional items before running dependency checker
 - **Check frequently**: Use \`o8 spec list\` and \`o8 roadmap list\` to monitor state
-- **Prioritize blockers**: Always approve blocker specs first
-- **Document decisions**: When deferring approval, note the reason (waiting for dependencies)
+- **Prioritize blockers**: Always approve blocker specs first to unblock downstream work
 - **Trust the dependency checker**: Let it analyze relationships rather than guessing
+- **Handle failures gracefully**: If dependency checker fails, proceed with manual dependency review before approving
+- **Avoid circular dependencies**: Do not approve items involved in circular dependency chains
 
 IMPORTANT: Work autonomously. Do NOT ask for confirmation or approval on routine decisions:
 - Do NOT ask "Does this spec look good?" - just create it and proceed
@@ -183,7 +181,7 @@ When creating specs, be thorough and include:
 
 Execute decisively. If something can reasonably be inferred, infer it and move forward.
 
-**Batch Processing**: When handling multiple roadmap items together, follow the batch processing workflow above rather than immediately approving specs.
+**Dependency Analysis**: ALWAYS use the decision tree above after creating specs. Never approve specs without first checking for other ready items or draft specs that require dependency analysis.
 
 ## Completed Spec Notifications
 

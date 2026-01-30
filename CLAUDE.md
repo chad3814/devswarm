@@ -268,36 +268,59 @@ o8 roadmap deps <id>                              # List dependencies
 
 ### Batch Roadmap Processing
 
-When multiple roadmap items are created in quick succession (e.g., via ROADMAP.md migration or GitHub issue sync), the main Claude agent intelligently handles batch processing:
+**MANDATORY WORKFLOW**: Main Claude ALWAYS checks for additional items and draft specs before approving any spec.
 
-**Batch Detection**:
-Main Claude detects batch scenarios by:
-- Multiple "New roadmap item ready for specification" messages within a short time (< 30 seconds)
-- Similar naming patterns or related functionality
-- Orchestrator hint: "NOTE: Multiple roadmap items detected..."
+**Decision Tree After Creating a Spec**:
 
-**Batch Processing Workflow**:
-1. **Create Draft Specs**: Main Claude creates detailed specs for all items but leaves them in 'draft' status
-2. **Wait for Batch Completion**: Monitors for additional items (~30 seconds)
-3. **Run Dependency Checker**: Executes `o8 check-dependencies` to analyze all draft specs
-4. **Review Dependencies**: Checks `o8 roadmap list` to identify blockers vs. blocked items
-5. **Strategic Approval**: Approves specs in priority order:
-   - First: Blocker items (items that other items depend on)
-   - Next: Independent items with satisfied dependencies
-   - Last: Blocked items remain in draft until their blockers complete
-6. **Progressive Approval**: As blocker specs complete, approves newly-unblocked specs
+1. **Check for additional ready items**: Run `o8 roadmap list`
+   - If other `[READY]` items without specs exist → Create all specs as drafts, wait ~30s, run dependency checker
+   - If no other ready items → Continue to step 2
 
-**Single Item Behavior**:
-If only one roadmap item is created, main Claude follows the normal workflow:
-- Create spec
-- Approve immediately
-- No dependency analysis delay
+2. **Check for existing draft specs**: Run `o8 spec list`
+   - If OTHER draft specs exist → Run dependency checker
+   - If this is the only draft spec → Approve immediately
+
+3. **Run Dependency Checker** (when multiple draft specs exist):
+   ```bash
+   o8 check-dependencies
+   ```
+   - Analyzes ALL draft specs for dependency relationships
+   - Creates roadmap item dependencies automatically
+
+4. **Strategic Approval** (after dependency analysis):
+   - Review: `o8 roadmap list` to identify blockers vs. blocked items
+   - Approve in priority order:
+     - **First**: Blocker items (items other items depend on)
+     - **Next**: Independent items with satisfied dependencies
+     - **Last**: Blocked items remain in draft until blockers complete
+
+5. **Progressive Approval**: As blocker specs complete, approve newly-unblocked specs
+
+**Orchestrator Hints**:
+- When >3 pending items or >2 draft specs detected: "CRITICAL: Batch processing required!"
+- This enforces the mandatory batch processing workflow
+
+**Key Principles**:
+- **Never skip dependency checking**: When multiple draft specs exist, dependency analysis is REQUIRED
+- **Always check before approving**: The decision tree is mandatory, not optional
+- **Trust the dependency checker**: Automated analysis is more reliable than manual guessing
+- **Prioritize blockers**: Unblock downstream work by approving blockers first
 
 **Benefits**:
-- Prevents starting implementations with unknown dependencies
-- Optimizes parallelization by prioritizing blocker items
-- Avoids out-of-order implementation that could block progress
-- Leverages dependency checker for automated relationship detection
+- Prevents out-of-order implementation that could cause blocking issues
+- Optimizes parallelization by identifying and prioritizing blocker items
+- Ensures all dependencies are analyzed before work begins
+- Reduces rework from discovering dependencies mid-implementation
+
+**Troubleshooting Common Issues**:
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| **Specs approved too early** | Items start implementation before dependencies are analyzed | Main Claude must follow the decision tree - check for other ready items and draft specs before approving |
+| **Dependency checker not running** | Multiple draft specs exist but no dependency analysis performed | Main Claude should run `o8 check-dependencies` whenever multiple draft specs exist |
+| **Circular dependencies** | Dependency checker reports circular dependency | Do not approve items involved in the circular chain - manually review and break the cycle |
+| **Dependency checker fails** | Error during dependency analysis | Proceed with manual dependency review using `o8 roadmap deps <id>` before approving specs |
+| **Items approved out of order** | Blocked items approved before their blockers | Always check `o8 roadmap list` after dependency analysis - approve blockers first |
 
 ## Key Patterns
 
