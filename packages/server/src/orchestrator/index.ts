@@ -275,7 +275,7 @@ Please review and decide what to work on first.
         const draftSpecs = this.db.getSpecs({ status: 'draft' }).length;
 
         if (recentPending.length > 3 || draftSpecs > 2) {
-            return `\n\nNOTE: Multiple roadmap items detected (${recentPending.length} pending, ${draftSpecs} draft specs). Consider using batch processing workflow.`;
+            return `\n\nCRITICAL: Batch processing required! Multiple roadmap items detected (${recentPending.length} pending, ${draftSpecs} draft specs). You MUST use batch processing workflow: create all specs as drafts, wait for batch completion, run dependency checker, then approve in priority order.`;
         }
 
         return '';
