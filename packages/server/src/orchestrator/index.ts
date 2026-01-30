@@ -266,7 +266,7 @@ Please review and decide what to work on first.
         }
     }
 
-    private getBatchNotificationContext(item: import('../db/index.js').RoadmapItem): string {
+    private getBatchNotificationContext(_item: import('../db/index.js').RoadmapItem): string {
         // Count pending items without specs created in the last 60 seconds
         const recentPending = this.db.getRoadmapItems({ status: 'pending' })
             .filter(i => !i.spec_id && !this.notifiedRoadmapItems.has(i.id))
